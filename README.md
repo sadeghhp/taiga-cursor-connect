@@ -9,21 +9,28 @@ MCP server that connects [Cursor](https://cursor.com) to [Taiga](https://taiga.i
 | `taiga_list_projects` | List projects (id, slug, name) |
 | `taiga_list_user_stories` | List user stories in a project (optional milestone filter) |
 | `taiga_search` | Search user stories, tasks, epics, and issues in a project by text |
-| `taiga_get_story` | Fetch a user story by project slug and ref, including tasks and enriched fields |
+| `taiga_get_story` | Fetch a user story by **id** or slug+ref, tasks, `points_by_role`, optional history |
 | `taiga_get_story_history` | Activity history for a story (by id or slug+ref) |
 | `taiga_get_task` | Fetch a task by internal id or project slug + task ref |
 | `taiga_get_task_history` | Activity history for a task (by id or slug+ref) |
+| `taiga_get_issue` | Fetch an issue by internal id or project slug + issue ref |
+| `taiga_get_issue_history` | Activity history for an issue (by id or slug+ref) |
+| `taiga_create_story` | Create a user story in a project |
+| `taiga_create_task` | Create a task (optional parent `userStoryId`) |
+| `taiga_create_issue` | Create an issue in a project |
 | `taiga_comment_on_story` | Add a comment (by story id or project slug + story ref) |
 | `taiga_comment_on_task` | Add a comment (by task id or project slug + task ref) |
-| `taiga_update_story` | Update story status, closed state, subject, or description |
-| `taiga_update_task` | Update task status, closed state, subject, or description |
+| `taiga_comment_on_issue` | Add a comment (by issue id or project slug + issue ref) |
+| `taiga_update_story` | Update story: status, milestone, assignee, tags, blocked, subject, description |
+| `taiga_update_task` | Update task: status, milestone, assignee, tags, blocked, subject, description |
+| `taiga_update_issue` | Update issue: status, milestone, assignee, tags, blocked, subject, description |
 
 ### Identifiers
 
 - **Ref** — number shown in the Taiga UI (`#42`).
-- **Id** — internal Taiga database id (returned in `taiga_get_story` / `taiga_get_task`).
+- **Id** — internal Taiga database id (returned by get/create tools).
 
-Most write tools accept **either** id **or** `projectSlug` + ref. Status changes accept `statusName` (UI label) or `statusId`.
+Most read/write tools accept **either** id **or** `projectSlug` + ref. Updates accept `statusName` (UI label) or `statusId`, plus optional `assignedToId`, comma-separated `tags`, `isBlocked`, `blockedNote`, and `milestoneSlug` / `milestoneId` (stories, tasks, issues).
 
 Writes use optimistic concurrency (`version` on PATCH) with automatic retry on version conflicts. HTTP 429 responses are retried with backoff.
 
@@ -174,6 +181,22 @@ The process waits on stdio (normal for MCP).
 | Cannot reach Taiga from container | Ensure Taiga is on host port 9000; test: `docker run --rm --add-host=host.docker.internal:host-gateway curlimages/curl -s http://host.docker.internal:9000/api/v1/` |
 | No projects | Create a project in Taiga UI first |
 | MCP tools missing | Restart Cursor; rebuild image: `npm run docker:build` |
+
+## Testing
+
+Unit tests use Node’s built-in test runner (`node:test`) via `tsx`. They do not call a live Taiga instance.
+
+```bash
+npm test
+```
+
+For local iteration without rebuilding:
+
+```bash
+npm run test:watch
+```
+
+Coverage includes input validation (`schemas.ts`), response trimming, optimistic-concurrency retry logic, and status/milestone resolution (with a mocked HTTP client).
 
 ## Architecture
 

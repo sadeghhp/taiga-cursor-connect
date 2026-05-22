@@ -3,14 +3,22 @@ import axios, {
   type AxiosInstance,
   type InternalAxiosRequestConfig
 } from "axios";
+import {
+  assertIssueRefValid,
+  assertStoryRefValid,
+  assertTaskRefValid
+} from "./schemas.js";
 import type {
   EpicSummary,
   HistoryEntrySummary,
+  IssueRefInput,
+  IssueSummary,
   ProjectSummary,
   SearchResultSummary,
   StoryRefInput,
   StorySummary,
   TaigaHistoryEntry,
+  TaigaIssue,
   TaigaMilestone,
   TaigaPoint,
   TaigaProject,
@@ -24,8 +32,13 @@ import type {
   UserStoryListSummary
 } from "./types.js";
 
-const TAIGA_API_URL = process.env.TAIGA_API_URL?.replace(/\/$/, "") ?? "";
-const TAIGA_TOKEN = process.env.TAIGA_TOKEN ?? "";
+function taigaApiUrl(): string {
+  return process.env.TAIGA_API_URL?.replace(/\/$/, "") ?? "";
+}
+
+function taigaToken(): string {
+  return process.env.TAIGA_TOKEN ?? "";
+}
 const HISTORY_CAP = 50;
 const OCC_MAX_RETRIES = 2;
 const THROTTLE_MAX_RETRIES = 3;
@@ -44,7 +57,7 @@ export class TaigaError extends Error {
 }
 
 function requireConfig(): void {
-  if (!TAIGA_API_URL || !TAIGA_TOKEN) {
+  if (!taigaApiUrl() || !taigaToken()) {
     throw new TaigaError(
       "Missing TAIGA_API_URL or TAIGA_TOKEN. Set them in environment or .env."
     );
@@ -86,9 +99,9 @@ function sleep(ms: number): Promise<void> {
 
 function createClient(): AxiosInstance {
   const instance = axios.create({
-    baseURL: TAIGA_API_URL,
+    baseURL: taigaApiUrl(),
     headers: {
-      Authorization: `Bearer ${TAIGA_TOKEN}`,
+      Authorization: `Bearer ${taigaToken()}`,
       "Content-Type": "application/json",
       "x-disable-pagination": "True"
     }
@@ -125,6 +138,11 @@ export function resetClient(): void {
   client = null;
 }
 
+/** @internal Inject mock Axios instance (tests only). */
+export function setClientForTests(instance: AxiosInstance | null): void {
+  client = instance;
+}
+
 export async function patchWithOCC<T extends { version: number }>(
   fetchCurrent: () => Promise<T>,
   patch: (entity: T) => Promise<void>
@@ -142,22 +160,6 @@ export async function patchWithOCC<T extends { version: number }>(
     }
   }
   throw wrapAxiosError(lastErr);
-}
-
-export function assertStoryRefInput(input: StoryRefInput): void {
-  if (input.storyId != null) return;
-  if (input.projectSlug && input.storyRef != null) return;
-  throw new TaigaError(
-    "Provide either storyId or both projectSlug and storyRef."
-  );
-}
-
-export function assertTaskRefInput(input: TaskRefInput): void {
-  if (input.taskId != null) return;
-  if (input.projectSlug && input.taskRef != null) return;
-  throw new TaigaError(
-    "Provide either taskId or both projectSlug and taskRef."
-  );
 }
 
 export async function getProjectBySlug(slug: string): Promise<TaigaProject> {
@@ -219,7 +221,7 @@ export async function getStoryById(storyId: number): Promise<TaigaUserStory> {
 }
 
 export async function resolveStory(input: StoryRefInput): Promise<TaigaUserStory> {
-  assertStoryRefInput(input);
+  assertStoryRefValid(input);
   if (input.storyId != null) return getStoryById(input.storyId);
   return getStoryByRefSlug(input.projectSlug!, input.storyRef!);
 }
@@ -248,9 +250,47 @@ export async function getTask(taskId: number): Promise<TaigaTask> {
 }
 
 export async function resolveTask(input: TaskRefInput): Promise<TaigaTask> {
-  assertTaskRefInput(input);
+  assertTaskRefValid(input);
   if (input.taskId != null) return getTask(input.taskId);
   return getTaskByRefSlug(input.projectSlug!, input.taskRef!);
+}
+
+export async function getIssueById(issueId: number): Promise<TaigaIssue> {
+  try {
+    const res = await getClient().get<TaigaIssue>(`/issues/${issueId}`);
+    return res.data;
+  } catch (e) {
+    throw wrapAxiosError(e);
+  }
+}
+
+export async function getIssueByRefSlug(
+  projectSlug: string,
+  issueRef: number
+): Promise<TaigaIssue> {
+  try {
+    const res = await getClient().get<TaigaIssue>("/issues/by_ref", {
+      params: { ref: issueRef, project__slug: projectSlug }
+    });
+    return res.data;
+  } catch (e) {
+    throw wrapAxiosError(e);
+  }
+}
+
+export async function resolveIssue(input: IssueRefInput): Promise<TaigaIssue> {
+  assertIssueRefValid(input);
+  if (input.issueId != null) return getIssueById(input.issueId);
+  return getIssueByRefSlug(input.projectSlug!, input.issueRef!);
+}
+
+export async function getIssueHistory(issueId: number): Promise<TaigaHistoryEntry[]> {
+  try {
+    const res = await getClient().get<TaigaHistoryEntry[]>(`/history/issue/${issueId}`);
+    return Array.isArray(res.data) ? res.data : [];
+  } catch (e) {
+    throw wrapAxiosError(e);
+  }
 }
 
 export async function getTasksForStory(
@@ -302,15 +342,20 @@ export async function searchProject(
   }
 }
 
-export type StatusEntityType = "user_story" | "task";
+export type StatusEntityType = "user_story" | "task" | "issue";
+
+const STATUS_LIST_PATH: Record<StatusEntityType, string> = {
+  user_story: "/userstory-statuses",
+  task: "/task-statuses",
+  issue: "/issue-statuses"
+};
 
 export async function resolveStatusId(
   projectId: number,
   entityType: StatusEntityType,
   statusName: string
 ): Promise<number> {
-  const path =
-    entityType === "user_story" ? "/userstory-statuses" : "/task-statuses";
+  const path = STATUS_LIST_PATH[entityType];
   try {
     const res = await getClient().get<TaigaStatus[]>(path, {
       params: { project: projectId }
@@ -392,22 +437,56 @@ export async function addTaskComment(
   );
 }
 
-export interface StoryUpdateFields {
+export interface CommonUpdateFields {
   statusId?: number;
   statusName?: string;
   isClosed?: boolean;
   subject?: string;
   description?: string;
+  assignedToId?: number;
+  tags?: string[];
+  isBlocked?: boolean;
+  blockedNote?: string;
+}
+
+export interface StoryUpdateFields extends CommonUpdateFields {
   milestoneId?: number;
   milestoneSlug?: string;
 }
 
-export interface TaskUpdateFields {
-  statusId?: number;
-  statusName?: string;
-  isClosed?: boolean;
-  subject?: string;
-  description?: string;
+export interface TaskUpdateFields extends CommonUpdateFields {
+  milestoneId?: number;
+  milestoneSlug?: string;
+}
+
+export interface IssueUpdateFields extends CommonUpdateFields {
+  milestoneId?: number;
+  milestoneSlug?: string;
+}
+
+function applyCommonPatchFields(
+  body: Record<string, unknown>,
+  fields: CommonUpdateFields
+): void {
+  if (fields.subject != null) body.subject = fields.subject;
+  if (fields.description != null) body.description = fields.description;
+  if (fields.isClosed != null) body.is_closed = fields.isClosed;
+  if (fields.assignedToId != null) body.assigned_to = fields.assignedToId;
+  if (fields.tags != null) body.tags = fields.tags;
+  if (fields.isBlocked != null) body.is_blocked = fields.isBlocked;
+  if (fields.blockedNote != null) body.blocked_note = fields.blockedNote;
+}
+
+async function applyStatusToBody(
+  body: Record<string, unknown>,
+  projectId: number,
+  entityType: StatusEntityType,
+  fields: CommonUpdateFields
+): Promise<void> {
+  if (fields.statusId != null) body.status = fields.statusId;
+  else if (fields.statusName != null) {
+    body.status = await resolveStatusId(projectId, entityType, fields.statusName);
+  }
 }
 
 export async function updateStory(
@@ -446,6 +525,105 @@ export async function updateTask(
       })
   );
   return getTask(task.id);
+}
+
+async function resolveIssueProjectId(issue: TaigaIssue): Promise<number> {
+  if (issue.project != null) return issue.project;
+  const full = await getIssueById(issue.id);
+  if (full.project == null) {
+    throw new TaigaError(`Could not determine project for issue ${issue.id}.`);
+  }
+  return full.project;
+}
+
+export async function addIssueComment(
+  input: number | IssueRefInput,
+  comment: string
+): Promise<void> {
+  const issueId =
+    typeof input === "number" ? input : (await resolveIssue(input)).id;
+  await patchWithOCC(
+    () => getIssueById(issueId),
+    (current) =>
+      getClient().patch(`/issues/${issueId}`, {
+        version: current.version,
+        comment
+      })
+  );
+}
+
+export async function updateIssue(
+  input: IssueRefInput,
+  fields: IssueUpdateFields
+): Promise<TaigaIssue> {
+  const issue = await resolveIssue(input);
+  const projectId = await resolveIssueProjectId(issue);
+  const patchBody = await buildIssuePatchBody(projectId, fields);
+
+  await patchWithOCC(
+    () => getIssueById(issue.id),
+    (current) =>
+      getClient().patch(`/issues/${issue.id}`, {
+        version: current.version,
+        ...patchBody
+      })
+  );
+  return getIssueById(issue.id);
+}
+
+export async function createUserStory(
+  projectSlug: string,
+  subject: string,
+  description?: string
+): Promise<TaigaUserStory> {
+  const project = await getProjectBySlug(projectSlug);
+  try {
+    const res = await getClient().post<TaigaUserStory>("/userstories", {
+      project: project.id,
+      subject,
+      ...(description != null ? { description } : {})
+    });
+    return res.data;
+  } catch (e) {
+    throw wrapAxiosError(e);
+  }
+}
+
+export async function createTask(
+  projectSlug: string,
+  subject: string,
+  options?: { description?: string; userStoryId?: number }
+): Promise<TaigaTask> {
+  const project = await getProjectBySlug(projectSlug);
+  try {
+    const res = await getClient().post<TaigaTask>("/tasks", {
+      project: project.id,
+      subject,
+      ...(options?.description != null ? { description: options.description } : {}),
+      ...(options?.userStoryId != null ? { user_story: options.userStoryId } : {})
+    });
+    return res.data;
+  } catch (e) {
+    throw wrapAxiosError(e);
+  }
+}
+
+export async function createIssue(
+  projectSlug: string,
+  subject: string,
+  description?: string
+): Promise<TaigaIssue> {
+  const project = await getProjectBySlug(projectSlug);
+  try {
+    const res = await getClient().post<TaigaIssue>("/issues", {
+      project: project.id,
+      subject,
+      ...(description != null ? { description } : {})
+    });
+    return res.data;
+  } catch (e) {
+    throw wrapAxiosError(e);
+  }
 }
 
 export async function resolveMilestoneId(
@@ -487,13 +665,8 @@ async function buildStoryPatchBody(
   fields: StoryUpdateFields
 ): Promise<Record<string, unknown>> {
   const body: Record<string, unknown> = {};
-  if (fields.subject != null) body.subject = fields.subject;
-  if (fields.description != null) body.description = fields.description;
-  if (fields.isClosed != null) body.is_closed = fields.isClosed;
-  if (fields.statusId != null) body.status = fields.statusId;
-  else if (fields.statusName != null) {
-    body.status = await resolveStatusId(projectId, "user_story", fields.statusName);
-  }
+  applyCommonPatchFields(body, fields);
+  await applyStatusToBody(body, projectId, "user_story", fields);
   const milestone = await resolveMilestoneId(
     projectId,
     fields.milestoneSlug,
@@ -501,9 +674,7 @@ async function buildStoryPatchBody(
   );
   if (milestone != null) body.milestone = milestone;
   if (Object.keys(body).length === 0) {
-    throw new TaigaError(
-      "Provide at least one field to update: statusName, statusId, isClosed, subject, description, milestoneSlug, or milestoneId."
-    );
+    throw new TaigaError("Provide at least one field to update.");
   }
   return body;
 }
@@ -513,19 +684,57 @@ async function buildTaskPatchBody(
   fields: TaskUpdateFields
 ): Promise<Record<string, unknown>> {
   const body: Record<string, unknown> = {};
-  if (fields.subject != null) body.subject = fields.subject;
-  if (fields.description != null) body.description = fields.description;
-  if (fields.isClosed != null) body.is_closed = fields.isClosed;
-  if (fields.statusId != null) body.status = fields.statusId;
-  else if (fields.statusName != null) {
-    body.status = await resolveStatusId(projectId, "task", fields.statusName);
-  }
+  applyCommonPatchFields(body, fields);
+  await applyStatusToBody(body, projectId, "task", fields);
+  const milestone = await resolveMilestoneId(
+    projectId,
+    fields.milestoneSlug,
+    fields.milestoneId
+  );
+  if (milestone != null) body.milestone = milestone;
   if (Object.keys(body).length === 0) {
-    throw new TaigaError(
-      "Provide at least one field to update: statusName, statusId, isClosed, subject, or description."
-    );
+    throw new TaigaError("Provide at least one field to update.");
   }
   return body;
+}
+
+async function buildIssuePatchBody(
+  projectId: number,
+  fields: IssueUpdateFields
+): Promise<Record<string, unknown>> {
+  const body: Record<string, unknown> = {};
+  applyCommonPatchFields(body, fields);
+  await applyStatusToBody(body, projectId, "issue", fields);
+  const milestone = await resolveMilestoneId(
+    projectId,
+    fields.milestoneSlug,
+    fields.milestoneId
+  );
+  if (milestone != null) body.milestone = milestone;
+  if (Object.keys(body).length === 0) {
+    throw new TaigaError("Provide at least one field to update.");
+  }
+  return body;
+}
+
+export function trimIssueDetail(issue: TaigaIssue): IssueSummary {
+  return {
+    id: issue.id,
+    ref: issue.ref,
+    subject: issue.subject,
+    description: issue.description ?? null,
+    status: issue.status_extra_info?.name ?? null,
+    assigned_to: issue.assigned_to_extra_info?.full_name_display ?? null,
+    milestone: issue.milestone_slug ?? issue.milestone_name ?? null,
+    version: issue.version,
+    tags: normalizeTags(issue.tags),
+    is_blocked: issue.is_blocked ?? false,
+    blocked_note: issue.blocked_note ?? null,
+    is_closed:
+      issue.is_closed ?? issue.status_extra_info?.is_closed ?? false,
+    priority: issue.priority ?? null,
+    severity: issue.severity ?? null
+  };
 }
 
 function normalizeTags(
@@ -697,13 +906,22 @@ export function trimTaskDetail(task: TaigaTask): TaskSummary & { user_story: num
 }
 
 export async function fetchStoryBundle(
-  projectSlug: string,
-  storyRef: number,
+  input: StoryRefInput,
   includeHistory: boolean
 ): Promise<StorySummary> {
-  const story = await getStoryByRefSlug(projectSlug, storyRef);
-  const projectId =
-    story.project ?? (await getProjectBySlug(projectSlug)).id;
+  const story = await resolveStory(input);
+  let projectId = story.project;
+  if (projectId == null) {
+    if (input.projectSlug) {
+      projectId = (await getProjectBySlug(input.projectSlug)).id;
+    } else {
+      const full = await getStoryById(story.id);
+      if (full.project == null) {
+        throw new TaigaError(`Could not determine project for user story ${story.id}.`);
+      }
+      projectId = full.project;
+    }
+  }
   const tasks = await getTasksForStory(projectId, story.id);
   const pointDefs = await getPointsForProject(projectId);
   const pointsByRole = resolvePointsByRole(story.points, pointDefs);

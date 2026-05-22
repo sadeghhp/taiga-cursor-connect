@@ -2,31 +2,48 @@ import "dotenv/config";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { formatTaigaError } from "./errors.js";
 import {
-  TaigaError,
+  addIssueComment,
   addStoryComment,
   addTaskComment,
+  createIssue,
+  createTask,
+  createUserStory,
   fetchStoryBundle,
+  getIssueHistory,
   getStoryHistory,
   getTaskHistory,
   listProjects,
   listUserStories,
+  resolveIssue,
   resolveStory,
   resolveTask,
   searchProject,
   trimHistory,
+  trimIssueDetail,
   trimTaskDetail,
+  updateIssue,
   updateStory,
-  updateTask
+  updateTask,
+  type CommonUpdateFields,
+  type IssueUpdateFields,
+  type StoryUpdateFields,
+  type TaskUpdateFields
 } from "./taiga-client.js";
 import {
-  SchemaValidationError,
+  assertIssueRefValid,
+  assertIssueUpdateValid,
   assertStoryRefValid,
   assertStoryUpdateValid,
   assertTaskRefValid,
   assertTaskUpdateValid,
+  issueRefFields,
+  issueUpdateFieldsShape,
+  parseTagsParam,
   storyRefFields,
   taskRefFields,
+  taskUpdateFieldsShape,
   updateFieldsShape
 } from "./schemas.js";
 
@@ -43,21 +60,41 @@ function toolText(text: string) {
   };
 }
 
-function formatTaigaError(err: unknown): string {
-  if (err instanceof TaigaError || err instanceof SchemaValidationError) {
-    const status = err instanceof TaigaError ? err.status : undefined;
-    return status ? `${err.message} (HTTP ${status})` : err.message;
-  }
-  return err instanceof Error ? err.message : String(err);
-}
-
 function jsonResult(data: unknown) {
   return toolText(JSON.stringify(data, null, 2));
 }
 
+function pickCommonUpdate(args: {
+  statusName?: string;
+  statusId?: number;
+  isClosed?: boolean;
+  subject?: string;
+  description?: string;
+  assignedToId?: number;
+  tags?: string;
+  isBlocked?: boolean;
+  blockedNote?: string;
+  milestoneSlug?: string;
+  milestoneId?: number;
+}): CommonUpdateFields & { milestoneSlug?: string; milestoneId?: number } {
+  return {
+    statusName: args.statusName,
+    statusId: args.statusId,
+    isClosed: args.isClosed,
+    subject: args.subject,
+    description: args.description,
+    assignedToId: args.assignedToId,
+    tags: parseTagsParam(args.tags),
+    isBlocked: args.isBlocked,
+    blockedNote: args.blockedNote,
+    milestoneSlug: args.milestoneSlug,
+    milestoneId: args.milestoneId
+  };
+}
+
 const server = new McpServer({
   name: "taiga-mcp",
-  version: "0.2.1"
+  version: "0.3.0"
 });
 
 server.tool(
@@ -65,8 +102,7 @@ server.tool(
   {},
   async () => {
     try {
-      const projects = await listProjects();
-      return jsonResult(projects);
+      return jsonResult(await listProjects());
     } catch (err) {
       return toolError(formatTaigaError(err));
     }
@@ -84,8 +120,7 @@ server.tool(
   },
   async ({ projectSlug, milestoneId }) => {
     try {
-      const stories = await listUserStories(projectSlug, milestoneId);
-      return jsonResult(stories);
+      return jsonResult(await listUserStories(projectSlug, milestoneId));
     } catch (err) {
       return toolError(formatTaigaError(err));
     }
@@ -100,8 +135,7 @@ server.tool(
   },
   async ({ projectSlug, text }) => {
     try {
-      const results = await searchProject(projectSlug, text);
-      return jsonResult(results);
+      return jsonResult(await searchProject(projectSlug, text));
     } catch (err) {
       return toolError(formatTaigaError(err));
     }
@@ -111,21 +145,22 @@ server.tool(
 server.tool(
   "taiga_get_story",
   {
-    projectSlug: z
-      .string()
-      .describe("Taiga project slug, e.g. admin-my-project or project-0"),
-    storyRef: z.number().describe("User story ref number shown in UI as #42"),
+    ...storyRefFields,
     includeHistory: z
       .boolean()
       .optional()
       .describe("Include trimmed activity history (default false)")
   },
-  async ({ projectSlug, storyRef, includeHistory }) => {
+  async (args) => {
     try {
+      assertStoryRefValid(args);
       const result = await fetchStoryBundle(
-        projectSlug,
-        storyRef,
-        includeHistory ?? false
+        {
+          storyId: args.storyId,
+          projectSlug: args.projectSlug,
+          storyRef: args.storyRef
+        },
+        args.includeHistory ?? false
       );
       return jsonResult(result);
     } catch (err) {
@@ -179,6 +214,109 @@ server.tool(
 );
 
 server.tool(
+  "taiga_get_issue",
+  issueRefFields,
+  async (args) => {
+    try {
+      assertIssueRefValid(args);
+      const issue = await resolveIssue(args);
+      return jsonResult(trimIssueDetail(issue));
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_get_issue_history",
+  issueRefFields,
+  async (args) => {
+    try {
+      assertIssueRefValid(args);
+      const issue = await resolveIssue(args);
+      const history = trimHistory(await getIssueHistory(issue.id));
+      return jsonResult({ issue_id: issue.id, ref: issue.ref, history });
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_create_story",
+  {
+    projectSlug: z.string().describe("Taiga project slug"),
+    subject: z.string().describe("Story title"),
+    description: z.string().optional().describe("Story description")
+  },
+  async ({ projectSlug, subject, description }) => {
+    try {
+      const story = await createUserStory(projectSlug, subject, description);
+      return jsonResult({
+        id: story.id,
+        ref: story.ref,
+        subject: story.subject,
+        version: story.version
+      });
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_create_task",
+  {
+    projectSlug: z.string().describe("Taiga project slug"),
+    subject: z.string().describe("Task title"),
+    description: z.string().optional().describe("Task description"),
+    userStoryId: z
+      .number()
+      .optional()
+      .describe("Parent user story internal id")
+  },
+  async ({ projectSlug, subject, description, userStoryId }) => {
+    try {
+      const task = await createTask(projectSlug, subject, {
+        description,
+        userStoryId
+      });
+      return jsonResult({
+        id: task.id,
+        ref: task.ref,
+        subject: task.subject,
+        version: task.version,
+        user_story: task.user_story ?? null
+      });
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_create_issue",
+  {
+    projectSlug: z.string().describe("Taiga project slug"),
+    subject: z.string().describe("Issue title"),
+    description: z.string().optional().describe("Issue description")
+  },
+  async ({ projectSlug, subject, description }) => {
+    try {
+      const issue = await createIssue(projectSlug, subject, description);
+      return jsonResult({
+        id: issue.id,
+        ref: issue.ref,
+        subject: issue.subject,
+        version: issue.version
+      });
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
   "taiga_comment_on_story",
   {
     ...storyRefFields,
@@ -219,6 +357,26 @@ server.tool(
 );
 
 server.tool(
+  "taiga_comment_on_issue",
+  {
+    ...issueRefFields,
+    comment: z.string().describe("Comment text to add to the issue")
+  },
+  async (args) => {
+    try {
+      assertIssueRefValid(args);
+      const issue = await resolveIssue(args);
+      await addIssueComment(issue.id, args.comment);
+      return toolText(
+        `Comment added to Taiga issue #${issue.ref} (id ${issue.id})`
+      );
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
   "taiga_update_story",
   {
     ...storyRefFields,
@@ -228,29 +386,14 @@ server.tool(
     try {
       assertStoryRefValid(args);
       assertStoryUpdateValid(args);
-      const {
-        storyId,
-        projectSlug,
-        storyRef,
-        statusName,
-        statusId,
-        isClosed,
-        subject,
-        description,
-        milestoneSlug,
-        milestoneId
-      } = args;
+      const fields = pickCommonUpdate(args) as StoryUpdateFields;
       const updated = await updateStory(
-        { storyId, projectSlug, storyRef },
         {
-          statusName,
-          statusId,
-          isClosed,
-          subject,
-          description,
-          milestoneSlug,
-          milestoneId
-        }
+          storyId: args.storyId,
+          projectSlug: args.projectSlug,
+          storyRef: args.storyRef
+        },
+        fields
       );
       return jsonResult({
         id: updated.id,
@@ -272,29 +415,20 @@ server.tool(
   "taiga_update_task",
   {
     ...taskRefFields,
-    statusName: updateFieldsShape.statusName,
-    statusId: updateFieldsShape.statusId,
-    isClosed: updateFieldsShape.isClosed,
-    subject: updateFieldsShape.subject,
-    description: updateFieldsShape.description
+    ...taskUpdateFieldsShape
   },
   async (args) => {
     try {
       assertTaskRefValid(args);
       assertTaskUpdateValid(args);
-      const {
-        taskId,
-        projectSlug,
-        taskRef,
-        statusName,
-        statusId,
-        isClosed,
-        subject,
-        description
-      } = args;
+      const fields = pickCommonUpdate(args) as TaskUpdateFields;
       const updated = await updateTask(
-        { taskId, projectSlug, taskRef },
-        { statusName, statusId, isClosed, subject, description }
+        {
+          taskId: args.taskId,
+          projectSlug: args.projectSlug,
+          taskRef: args.taskRef
+        },
+        fields
       );
       return jsonResult({
         id: updated.id,
@@ -302,6 +436,40 @@ server.tool(
         subject: updated.subject,
         status: updated.status_extra_info?.name ?? null,
         is_closed: updated.is_closed,
+        version: updated.version
+      });
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_update_issue",
+  {
+    ...issueRefFields,
+    ...issueUpdateFieldsShape
+  },
+  async (args) => {
+    try {
+      assertIssueRefValid(args);
+      assertIssueUpdateValid(args);
+      const fields = pickCommonUpdate(args) as IssueUpdateFields;
+      const updated = await updateIssue(
+        {
+          issueId: args.issueId,
+          projectSlug: args.projectSlug,
+          issueRef: args.issueRef
+        },
+        fields
+      );
+      return jsonResult({
+        id: updated.id,
+        ref: updated.ref,
+        subject: updated.subject,
+        status: updated.status_extra_info?.name ?? null,
+        is_closed:
+          updated.is_closed ?? updated.status_extra_info?.is_closed ?? false,
         version: updated.version
       });
     } catch (err) {

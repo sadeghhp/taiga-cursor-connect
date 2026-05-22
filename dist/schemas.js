@@ -10,23 +10,21 @@ export const taskRefFields = {
     projectSlug: z.string().optional().describe("Project slug (with taskRef)"),
     taskRef: z.number().optional().describe("Task ref # (with projectSlug)")
 };
+export const issueRefFields = {
+    issueId: z.number().optional().describe("Taiga internal issue ID"),
+    projectSlug: z.string().optional().describe("Project slug (with issueRef)"),
+    issueRef: z.number().optional().describe("Issue ref # (with projectSlug)")
+};
 function hasStoryRef(d) {
     return d.storyId != null || (Boolean(d.projectSlug) && d.storyRef != null);
 }
 function hasTaskRef(d) {
     return d.taskId != null || (Boolean(d.projectSlug) && d.taskRef != null);
 }
-export function storyRefRefine(d, ctx) {
-    if (!hasStoryRef(d)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: idOrSlugRefMessage });
-    }
+function hasIssueRef(d) {
+    return d.issueId != null || (Boolean(d.projectSlug) && d.issueRef != null);
 }
-export function taskRefRefine(d, ctx) {
-    if (!hasTaskRef(d)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: idOrSlugRefMessage });
-    }
-}
-export const updateFieldsShape = {
+export const commonUpdateFieldsShape = {
     statusName: z
         .string()
         .optional()
@@ -35,44 +33,38 @@ export const updateFieldsShape = {
     isClosed: z.boolean().optional().describe("Mark entity closed/open"),
     subject: z.string().optional().describe("New subject/title"),
     description: z.string().optional().describe("New description"),
+    assignedToId: z
+        .number()
+        .optional()
+        .describe("Taiga user id to assign (null not supported via tool)"),
+    tags: z
+        .string()
+        .optional()
+        .describe("Comma-separated tags, e.g. 'bug,backend'"),
+    isBlocked: z.boolean().optional().describe("Mark blocked/unblocked"),
+    blockedNote: z.string().optional().describe("Reason when blocked")
+};
+export const updateFieldsShape = {
+    ...commonUpdateFieldsShape,
     milestoneSlug: z
         .string()
         .optional()
-        .describe("Sprint/milestone slug (user stories only)"),
+        .describe("Sprint/milestone slug (stories and tasks)"),
     milestoneId: z
         .number()
         .optional()
-        .describe("Sprint/milestone internal id (user stories only)")
+        .describe("Sprint/milestone internal id (stories and tasks)")
 };
-export function storyUpdateRefine(d, ctx) {
-    const hasField = d.statusName != null ||
-        d.statusId != null ||
-        d.isClosed != null ||
-        d.subject != null ||
-        d.description != null ||
-        d.milestoneSlug != null ||
-        d.milestoneId != null;
-    if (!hasField) {
-        ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Provide at least one field to update: statusName, statusId, isClosed, subject, description, milestoneSlug, or milestoneId."
-        });
-    }
-}
-export function taskUpdateRefine(d, ctx) {
-    const hasField = d.statusName != null ||
-        d.statusId != null ||
-        d.isClosed != null ||
-        d.subject != null ||
-        d.description != null;
-    if (!hasField) {
-        ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Provide at least one field to update: statusName, statusId, isClosed, subject, or description."
-        });
-    }
-}
-/** Runtime validation when MCP SDK requires a plain Zod shape (no .superRefine). */
+export const taskUpdateFieldsShape = {
+    ...commonUpdateFieldsShape,
+    milestoneSlug: updateFieldsShape.milestoneSlug,
+    milestoneId: updateFieldsShape.milestoneId
+};
+export const issueUpdateFieldsShape = {
+    ...commonUpdateFieldsShape,
+    milestoneSlug: updateFieldsShape.milestoneSlug,
+    milestoneId: updateFieldsShape.milestoneId
+};
 export class SchemaValidationError extends Error {
     constructor(message) {
         super(message);
@@ -87,25 +79,42 @@ export function assertTaskRefValid(d) {
     if (!hasTaskRef(d))
         throw new SchemaValidationError(idOrSlugRefMessage);
 }
-export function assertStoryUpdateValid(d) {
-    const hasField = d.statusName != null ||
+export function assertIssueRefValid(d) {
+    if (!hasIssueRef(d))
+        throw new SchemaValidationError(idOrSlugRefMessage);
+}
+function hasCommonUpdate(d) {
+    return (d.statusName != null ||
         d.statusId != null ||
         d.isClosed != null ||
         d.subject != null ||
         d.description != null ||
-        d.milestoneSlug != null ||
-        d.milestoneId != null;
-    if (!hasField) {
-        throw new SchemaValidationError("Provide at least one field to update: statusName, statusId, isClosed, subject, description, milestoneSlug, or milestoneId.");
+        d.assignedToId != null ||
+        (d.tags != null && d.tags.trim() !== "") ||
+        d.isBlocked != null ||
+        d.blockedNote != null);
+}
+export function assertStoryUpdateValid(d) {
+    if (!hasCommonUpdate(d) && d.milestoneSlug == null && d.milestoneId == null) {
+        throw new SchemaValidationError("Provide at least one field to update (status, subject, description, milestone, assignee, tags, blocked, etc.).");
     }
 }
 export function assertTaskUpdateValid(d) {
-    const hasField = d.statusName != null ||
-        d.statusId != null ||
-        d.isClosed != null ||
-        d.subject != null ||
-        d.description != null;
-    if (!hasField) {
-        throw new SchemaValidationError("Provide at least one field to update: statusName, statusId, isClosed, subject, or description.");
+    if (!hasCommonUpdate(d) && d.milestoneSlug == null && d.milestoneId == null) {
+        throw new SchemaValidationError("Provide at least one field to update (status, subject, description, milestone, assignee, tags, blocked, etc.).");
     }
+}
+export function assertIssueUpdateValid(d) {
+    if (!hasCommonUpdate(d) && d.milestoneSlug == null && d.milestoneId == null) {
+        throw new SchemaValidationError("Provide at least one field to update (status, subject, description, milestone, assignee, tags, blocked, etc.).");
+    }
+}
+export function parseTagsParam(tags) {
+    if (tags == null || tags.trim() === "")
+        return undefined;
+    const parsed = tags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean);
+    return parsed.length > 0 ? parsed : undefined;
 }

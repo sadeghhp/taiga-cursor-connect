@@ -128,6 +128,49 @@ export interface TaskRefInput {
   taskRef?: number;
 }
 
+export interface IssueRefInput {
+  issueId?: number;
+  projectSlug?: string;
+  issueRef?: number;
+}
+
+export interface TaigaIssue {
+  id: number;
+  ref: number;
+  subject: string;
+  description?: string;
+  version: number;
+  project?: number;
+  status_extra_info?: TaigaExtraInfo & { is_closed?: boolean };
+  assigned_to_extra_info?: TaigaExtraInfo | null;
+  milestone_slug?: string | null;
+  milestone_name?: string | null;
+  tags?: Array<string | [string, string | null]>;
+  is_blocked?: boolean;
+  blocked_note?: string;
+  is_closed?: boolean;
+  priority?: number;
+  severity?: number;
+  type?: number;
+}
+
+export interface IssueSummary {
+  id: number;
+  ref: number;
+  subject: string;
+  description: string | null;
+  status: string | null;
+  assigned_to: string | null;
+  milestone: string | null;
+  version: number;
+  tags: string[];
+  is_blocked: boolean;
+  blocked_note: string | null;
+  is_closed: boolean;
+  priority: number | null;
+  severity: number | null;
+}
+
 export interface ProjectSummary {
   id: number;
   slug: string;
