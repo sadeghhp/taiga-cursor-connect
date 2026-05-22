@@ -119,6 +119,10 @@ describe("assertStoryUpdateValid", () => {
     assert.doesNotThrow(() => assertStoryUpdateValid({ subject: "New title" }));
     assert.doesNotThrow(() => assertStoryUpdateValid({ milestoneSlug: "sprint-1" }));
     assert.doesNotThrow(() => assertStoryUpdateValid({ tags: "bug,api" }));
+    assert.doesNotThrow(() => assertStoryUpdateValid({ epicId: 42 }));
+    assert.doesNotThrow(() =>
+      assertStoryUpdateValid({ epicId: 1, unlinkEpic: true })
+    );
   });
 
   it("rejects empty update", () => {

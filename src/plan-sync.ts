@@ -2,6 +2,9 @@ import { readFile } from "node:fs/promises";
 import {
   createTask,
   createUserStory,
+  getStoryById,
+  getStoryByRefSlug,
+  getTaskByRefSlug,
   searchProject,
   updateTask,
   type CreateOptionalFields
@@ -44,9 +47,18 @@ export interface BulkSyncRowResult {
 export interface BulkSyncResult {
   rows: BulkSyncRowResult[];
   csv_patch: string;
+  blocking_errors?: string[];
 }
 
 const THREAD_MARKER = (id: string) => `<!-- thread:${id} -->`;
+
+/** Parse a Taiga ref column from CSV (positive integer only). */
+export function parseTaigaRef(raw: string | undefined): number | undefined {
+  if (raw == null || raw.trim() === "") return undefined;
+  const n = Number(raw.trim());
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return Math.trunc(n);
+}
 
 function parseCsvLine(line: string): string[] {
   const out: string[] = [];
@@ -107,6 +119,31 @@ function descriptionWithMarker(row: PlanCsvRow): string {
   return `${row.title}\n\n${THREAD_MARKER(row.thread_id)}`;
 }
 
+function storyCreateOpts(
+  row: PlanCsvRow,
+  milestoneSlugMap?: Record<string, string>
+): CreateOptionalFields {
+  const createOpts: CreateOptionalFields = {
+    tags: buildTags(row),
+    milestoneSlug: milestoneSlugMap?.[row.subphase]
+  };
+  const est = Number(row.estimate_h);
+  if (!Number.isNaN(est) && est > 0) {
+    createOpts.estimateHours = est;
+  }
+  return createOpts;
+}
+
+function taskCreateOpts(
+  storyOpts: CreateOptionalFields
+): Pick<CreateOptionalFields, "tags" | "milestoneSlug" | "milestoneId"> {
+  return {
+    tags: storyOpts.tags,
+    milestoneSlug: storyOpts.milestoneSlug,
+    milestoneId: storyOpts.milestoneId
+  };
+}
+
 async function findExistingByThread(
   projectSlug: string,
   threadId: string
@@ -125,6 +162,41 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function registerThreadRefs(
+  map: Map<string, { storyRef: number; taskRef: number }>,
+  threadId: string,
+  storyRef: number,
+  taskRef: number
+): void {
+  map.set(threadId, { storyRef, taskRef });
+}
+
+export function resolveThreadRefs(
+  threadId: string,
+  threadToRefs: Map<string, { storyRef: number; taskRef: number }>,
+  rowsByThread: Map<string, PlanCsvRow>,
+  results: BulkSyncRowResult[]
+): { storyRef: number; taskRef: number } | undefined {
+  const cached = threadToRefs.get(threadId);
+  if (cached) return cached;
+
+  const row = rowsByThread.get(threadId);
+  if (row) {
+    const fromCsv = parseTaigaRef(row.taiga_story_ref);
+    const fromCsvTask = parseTaigaRef(row.taiga_task_ref);
+    if (fromCsv && fromCsvTask) {
+      return { storyRef: fromCsv, taskRef: fromCsvTask };
+    }
+  }
+
+  const result = results.find((r) => r.thread_id === threadId);
+  if (result?.story_ref != null && result?.task_ref != null) {
+    return { storyRef: result.story_ref, taskRef: result.task_ref };
+  }
+
+  return undefined;
+}
+
 export async function bulkSyncTasksCsv(
   options: BulkSyncOptions
 ): Promise<BulkSyncResult> {
@@ -133,9 +205,11 @@ export async function bulkSyncTasksCsv(
   const sorted = [...parsed].sort((a, b) =>
     a.thread_id.localeCompare(b.thread_id)
   );
+  const rowsByThread = new Map(sorted.map((r) => [r.thread_id, r]));
 
   const threadToRefs = new Map<string, { storyRef: number; taskRef: number }>();
   const results: BulkSyncRowResult[] = [];
+  const blockingErrors: string[] = [];
   const delayMs = options.delayMs ?? 200;
 
   for (const row of sorted) {
@@ -149,12 +223,8 @@ export async function bulkSyncTasksCsv(
     };
 
     try {
-      let storyRef = row.taiga_story_ref
-        ? Number(row.taiga_story_ref)
-        : undefined;
-      let taskRef = row.taiga_task_ref
-        ? Number(row.taiga_task_ref)
-        : undefined;
+      let storyRef = parseTaigaRef(row.taiga_story_ref);
+      let taskRef = parseTaigaRef(row.taiga_task_ref);
 
       if (!storyRef || !taskRef) {
         const existing = await findExistingByThread(
@@ -165,14 +235,8 @@ export async function bulkSyncTasksCsv(
         if (existing?.taskRef) taskRef = existing.taskRef;
       }
 
-      const createOpts: CreateOptionalFields = {
-        tags: buildTags(row),
-        milestoneSlug: options.milestoneSlugMap?.[row.subphase]
-      };
-      const est = Number(row.estimate_h);
-      if (!Number.isNaN(est) && est > 0) {
-        createOpts.estimateHours = est;
-      }
+      const storyOpts = storyCreateOpts(row, options.milestoneSlugMap);
+      const taskOpts = taskCreateOpts(storyOpts);
 
       if (options.dryRun) {
         result.action = "dry_run";
@@ -184,35 +248,80 @@ export async function bulkSyncTasksCsv(
         result.story_ref = storyRef;
         result.task_ref = taskRef;
         result.action = "skipped";
-        threadToRefs.set(row.thread_id, { storyRef, taskRef });
+        registerThreadRefs(threadToRefs, row.thread_id, storyRef, taskRef);
         results.push(result);
         await sleep(delayMs);
         continue;
       }
 
-      const story = await createUserStory(
-        options.projectSlug,
-        storySubject(row),
-        descriptionWithMarker(row),
-        createOpts
-      );
-      const task = await createTask(options.projectSlug, taskSubject(row), {
-        description: descriptionWithMarker(row),
-        userStoryId: story.id,
-        tags: createOpts.tags,
-        milestoneSlug: createOpts.milestoneSlug,
-        estimateHours: createOpts.estimateHours
-      });
+      if (storyRef && !taskRef) {
+        const story = await getStoryByRefSlug(options.projectSlug, storyRef);
+        const task = await createTask(
+          options.projectSlug,
+          taskSubject(row),
+          {
+            description: descriptionWithMarker(row),
+            userStoryId: story.id,
+            ...taskOpts
+          }
+        );
+        result.story_ref = story.ref;
+        result.task_ref = task.ref;
+        result.story_id = story.id;
+        result.task_id = task.id;
+        result.action = "created";
+        registerThreadRefs(threadToRefs, row.thread_id, story.ref, task.ref);
+      } else if (taskRef && !storyRef) {
+        const task = await getTaskByRefSlug(options.projectSlug, taskRef);
+        let storyRefResolved: number;
+        if (task.user_story != null) {
+          const story = await getStoryById(task.user_story);
+          storyRefResolved = story.ref;
+          result.story_id = story.id;
+        } else {
+          const story = await createUserStory(
+            options.projectSlug,
+            storySubject(row),
+            descriptionWithMarker(row),
+            storyOpts
+          );
+          await updateTask(
+            { projectSlug: options.projectSlug, taskRef: task.ref },
+            { userStoryId: story.id }
+          );
+          storyRefResolved = story.ref;
+          result.story_id = story.id;
+        }
+        result.story_ref = storyRefResolved;
+        result.task_ref = task.ref;
+        result.task_id = task.id;
+        result.action = "created";
+        registerThreadRefs(
+          threadToRefs,
+          row.thread_id,
+          storyRefResolved,
+          task.ref
+        );
+      } else {
+        const story = await createUserStory(
+          options.projectSlug,
+          storySubject(row),
+          descriptionWithMarker(row),
+          storyOpts
+        );
+        const task = await createTask(options.projectSlug, taskSubject(row), {
+          description: descriptionWithMarker(row),
+          userStoryId: story.id,
+          ...taskOpts
+        });
 
-      result.story_ref = story.ref;
-      result.task_ref = task.ref;
-      result.story_id = story.id;
-      result.task_id = task.id;
-      result.action = "created";
-      threadToRefs.set(row.thread_id, {
-        storyRef: story.ref,
-        taskRef: task.ref
-      });
+        result.story_ref = story.ref;
+        result.task_ref = task.ref;
+        result.story_id = story.id;
+        result.task_id = task.id;
+        result.action = "created";
+        registerThreadRefs(threadToRefs, row.thread_id, story.ref, task.ref);
+      }
     } catch (e) {
       result.action = "error";
       result.error = e instanceof TaigaError ? e.message : String(e);
@@ -222,13 +331,37 @@ export async function bulkSyncTasksCsv(
     await sleep(delayMs);
   }
 
-  // Apply blocked_by after all rows exist
   if (!options.dryRun) {
     for (const row of sorted) {
-      if (!row.blocked_by?.trim()) continue;
-      const blocker = threadToRefs.get(row.blocked_by.trim());
-      const target = threadToRefs.get(row.thread_id);
-      if (!blocker || !target?.taskRef) continue;
+      const blockerId = row.blocked_by?.trim();
+      if (!blockerId) continue;
+
+      const blocker = resolveThreadRefs(
+        blockerId,
+        threadToRefs,
+        rowsByThread,
+        results
+      );
+      const target = resolveThreadRefs(
+        row.thread_id,
+        threadToRefs,
+        rowsByThread,
+        results
+      );
+
+      if (!blocker) {
+        blockingErrors.push(
+          `${row.thread_id}: blocker ${blockerId} has no story/task refs`
+        );
+        continue;
+      }
+      if (!target?.taskRef) {
+        blockingErrors.push(
+          `${row.thread_id}: no task ref to mark blocked`
+        );
+        continue;
+      }
+
       try {
         await updateTask(
           {
@@ -237,25 +370,25 @@ export async function bulkSyncTasksCsv(
           },
           {
             isBlocked: true,
-            blockedNote: row.blocked_by.trim()
+            blockedNote: blockerId
           }
         );
-      } catch {
-        // best-effort
+      } catch (e) {
+        const msg = e instanceof TaigaError ? e.message : String(e);
+        blockingErrors.push(`${row.thread_id}: ${msg}`);
       }
       await sleep(delayMs);
     }
   }
 
-  const header =
-    "thread_id,taiga_story_ref,taiga_task_ref";
+  const header = "thread_id,taiga_story_ref,taiga_task_ref";
   const patchLines = results.map(
-    (r) =>
-      `${r.thread_id},${r.story_ref ?? ""},${r.task_ref ?? ""}`
+    (r) => `${r.thread_id},${r.story_ref ?? ""},${r.task_ref ?? ""}`
   );
 
   return {
     rows: results,
-    csv_patch: [header, ...patchLines].join("\n")
+    csv_patch: [header, ...patchLines].join("\n"),
+    ...(blockingErrors.length > 0 ? { blocking_errors: blockingErrors } : {})
   };
 }

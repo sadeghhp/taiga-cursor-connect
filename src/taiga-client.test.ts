@@ -12,6 +12,7 @@ import {
   resolveStatusId,
   setClientForTests,
   trimEpicDetail,
+  updateStory,
   trimHistory,
   trimStoryWithTasks,
   trimTaskDetail
@@ -435,6 +436,54 @@ describe("resolveMilestoneId", () => {
         return true;
       }
     );
+  });
+});
+
+describe("updateStory epic-only", () => {
+  beforeEach(() => {
+    saveEnv();
+    process.env.TAIGA_API_URL = "http://taiga.test/api/v1";
+    process.env.TAIGA_TOKEN = "test-token";
+    resetClient();
+  });
+
+  afterEach(() => {
+    resetClient();
+    restoreEnv();
+  });
+
+  it("links epic without PATCH when only epicId is set", async () => {
+    let patchCalls = 0;
+    let linkCalls = 0;
+    const story: TaigaUserStory = {
+      id: 100,
+      ref: 5,
+      subject: "S",
+      version: 2,
+      project: 1
+    };
+
+    const client = mockAxiosClient({
+      get: async (url: string) => {
+        if (url === "/userstories/100") return { data: story };
+        return { data: story };
+      },
+      patch: async () => {
+        patchCalls++;
+        return { data: story };
+      }
+    });
+    (client as AxiosInstance & { post: ReturnType<typeof mock.fn> }).post = mock.fn(
+      async (url: string) => {
+        if (String(url).includes("related_userstories")) linkCalls++;
+        return { data: {} };
+      }
+    );
+    setClientForTests(client);
+
+    await updateStory({ storyId: 100 }, { epicId: 7 });
+    assert.equal(patchCalls, 0);
+    assert.equal(linkCalls, 1);
   });
 });
 

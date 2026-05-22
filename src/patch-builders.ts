@@ -92,14 +92,48 @@ export async function applyCreateOptions(
   await applyStatusToBody(body, projectId, entityType, fields);
   if (fields.assignedToId != null) body.assigned_to = fields.assignedToId;
   if (fields.tags != null) body.tags = fields.tags;
-  if (fields.dueDate != null) body.due_date = fields.dueDate;
-  if (fields.points != null) body.points = fields.points;
+  if (entityType === "user_story") {
+    if (fields.dueDate != null) body.due_date = fields.dueDate;
+    if (fields.points != null) body.points = fields.points;
+  }
   const milestone = await resolveMilestoneId(
     projectId,
     fields.milestoneSlug,
     fields.milestoneId
   );
   if (milestone != null) body.milestone = milestone;
+}
+
+export function omitStoryEpicFields(
+  fields: StoryUpdateFields
+): Omit<StoryUpdateFields, "epicId" | "unlinkEpic"> {
+  const { epicId: _e, unlinkEpic: _u, ...rest } = fields;
+  return rest;
+}
+
+export function hasStoryPatchFields(fields: StoryUpdateFields): boolean {
+  const f = omitStoryEpicFields(fields);
+  return (
+    f.statusName != null ||
+    f.statusId != null ||
+    f.isClosed != null ||
+    f.subject != null ||
+    f.description != null ||
+    f.assignedToId != null ||
+    f.unassign === true ||
+    (f.tags != null && f.tags.length > 0) ||
+    f.isBlocked != null ||
+    f.blockedNote != null ||
+    f.milestoneSlug != null ||
+    f.milestoneId != null ||
+    f.dueDate != null ||
+    f.estimateHours != null ||
+    f.points != null
+  );
+}
+
+export function hasStoryEpicMutation(fields: StoryUpdateFields): boolean {
+  return fields.epicId != null;
 }
 
 export async function buildStoryPatchBody(

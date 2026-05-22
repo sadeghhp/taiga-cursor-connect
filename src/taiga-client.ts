@@ -45,6 +45,9 @@ import {
   buildStoryPatchBody,
   buildTaskPatchBody,
   applyCreateOptions,
+  hasStoryEpicMutation,
+  hasStoryPatchFields,
+  omitStoryEpicFields,
   type CreateOptionalFields,
   type EpicUpdateFields,
   type IssueUpdateFields,
@@ -369,11 +372,16 @@ async function resolveStoryProjectId(story: TaigaUserStory): Promise<number> {
 
 export async function enrichCreateOptions(
   projectId: number,
-  options?: CreateOptionalFields
+  options?: CreateOptionalFields,
+  entityType: StatusEntityType = "user_story"
 ): Promise<CreateOptionalFields | undefined> {
   if (options == null) return undefined;
   const out = { ...options };
-  if (options.estimateHours != null && options.points == null) {
+  if (
+    entityType === "user_story" &&
+    options.estimateHours != null &&
+    options.points == null
+  ) {
     out.points = await resolvePointsFromEstimateHours(
       projectId,
       options.estimateHours
@@ -414,23 +422,27 @@ export async function updateStory(
 ): Promise<TaigaUserStory> {
   const story = await resolveStory(input);
   const projectId = await resolveStoryProjectId(story);
-  const patchFields = { ...fields };
-  if (patchFields.estimateHours != null && patchFields.points == null) {
-    patchFields.points = await resolvePointsFromEstimateHours(
-      projectId,
-      patchFields.estimateHours
+  const patchFields = omitStoryEpicFields({ ...fields });
+  if (!hasStoryPatchFields(fields) && !hasStoryEpicMutation(fields)) {
+    throw new TaigaError("Provide at least one field to update.");
+  }
+  if (hasStoryPatchFields(fields)) {
+    if (patchFields.estimateHours != null && patchFields.points == null) {
+      patchFields.points = await resolvePointsFromEstimateHours(
+        projectId,
+        patchFields.estimateHours
+      );
+    }
+    const patchBody = await buildStoryPatchBody(projectId, patchFields);
+    await patchWithOCC(
+      () => getStoryById(story.id),
+      (current) =>
+        getClient().patch(`/userstories/${story.id}`, {
+          version: current.version,
+          ...patchBody
+        })
     );
   }
-  const patchBody = await buildStoryPatchBody(projectId, patchFields);
-
-  await patchWithOCC(
-    () => getStoryById(story.id),
-    (current) =>
-      getClient().patch(`/userstories/${story.id}`, {
-        version: current.version,
-        ...patchBody
-      })
-  );
 
   if (fields.unlinkEpic && fields.epicId != null) {
     await unlinkStoryFromEpic(fields.epicId, story.id);
@@ -514,7 +526,7 @@ export async function createTask(
   } & CreateOptionalFields
 ): Promise<TaigaTask> {
   const project = await getProjectBySlug(projectSlug);
-  const enriched = await enrichCreateOptions(project.id, options);
+  const enriched = await enrichCreateOptions(project.id, options, "task");
   const body: Record<string, unknown> = {
     project: project.id,
     subject,
@@ -620,7 +632,7 @@ export async function createIssue(
   options?: CreateOptionalFields
 ): Promise<TaigaIssue> {
   const project = await getProjectBySlug(projectSlug);
-  const enriched = await enrichCreateOptions(project.id, options);
+  const enriched = await enrichCreateOptions(project.id, options, "issue");
   const body: Record<string, unknown> = {
     project: project.id,
     subject,
@@ -717,7 +729,7 @@ export async function createEpic(
   options?: CreateOptionalFields
 ): Promise<TaigaEpic> {
   const project = await getProjectBySlug(projectSlug);
-  const enriched = await enrichCreateOptions(project.id, options);
+  const enriched = await enrichCreateOptions(project.id, options, "epic");
   const body: Record<string, unknown> = {
     project: project.id,
     subject,
