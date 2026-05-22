@@ -87,6 +87,18 @@ import {
   taskUpdateFieldsShape
 } from "./schemas.js";
 
+const milestoneSlugMapSchema = z.record(z.string());
+const storyOrderEntrySchema = z.object({
+  storyRef: z.number().optional(),
+  storyId: z.number().optional(),
+  order: z.number()
+});
+const storyOrdersSchema = z.array(storyOrderEntrySchema);
+
+function parseJsonParam<T>(raw: string, schema: z.ZodType<T>): T {
+  return schema.parse(JSON.parse(raw));
+}
+
 function toolError(message: string) {
   return {
     isError: true as const,
@@ -660,7 +672,7 @@ server.tool(
     try {
       let map: Record<string, string> | undefined;
       if (args.milestoneSlugMap) {
-        map = JSON.parse(args.milestoneSlugMap) as Record<string, string>;
+        map = parseJsonParam(args.milestoneSlugMap, milestoneSlugMapSchema);
       }
       return jsonResult(
         await bulkSyncTasksCsv({
@@ -689,11 +701,7 @@ server.tool(
   },
   async ({ projectSlug, orders }) => {
     try {
-      const parsed = JSON.parse(orders) as {
-        storyRef?: number;
-        storyId?: number;
-        order: number;
-      }[];
+      const parsed = parseJsonParam(orders, storyOrdersSchema);
       await updateStoryBacklogOrder(
         projectSlug,
         parsed.map((e) => ({
@@ -718,11 +726,7 @@ server.tool(
   },
   async ({ projectSlug, orders }) => {
     try {
-      const parsed = JSON.parse(orders) as {
-        storyRef?: number;
-        storyId?: number;
-        order: number;
-      }[];
+      const parsed = parseJsonParam(orders, storyOrdersSchema);
       await updateStorySprintOrder(
         projectSlug,
         parsed.map((e) => ({

@@ -1,26 +1,175 @@
-# Taiga Cursor Connect (MCP)
+# Taiga Cursor Connect
 
-MCP server that connects [Cursor](https://cursor.com) to [Taiga](https://taiga.io) via the REST API. Runs in Docker; Cursor spawns the container over stdio.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-## Tools (v0.5.0 — 46 tools)
+**MCP server** that connects [Cursor](https://cursor.com) to [Taiga](https://taiga.io) over the REST API. Cursor spawns the server in Docker over stdio; the agent can list, read, create, and update backlog items without leaving the editor.
 
-### Discovery
+| | |
+|---|---|
+| **Protocol** | [Model Context Protocol](https://modelcontextprotocol.io) (stdio) |
+| **Runtime** | Node 22 (Docker image or local `tsx`) |
+| **Taiga** | Self-hosted or cloud; default `http://localhost:9000` |
+| **Version** | 0.5.0 — **46 tools** |
+
+## Why use this
+
+- **Slug + ref workflow** — Most tools accept `projectSlug` and UI ref (`#42`) instead of internal Taiga ids.
+- **Agent-friendly responses** — Trimmed JSON, human-readable `points_by_role`, paginated lists.
+- **Safe writes** — Optimistic concurrency on PATCH with automatic retry on version conflicts; HTTP 429 backoff.
+- **Plan-driven bulk import** — `taiga_bulk_sync_tasks_csv` syncs a CSV plan into stories/tasks with idempotency and `dryRun`.
+
+## Quick start
+
+1. **Token** — Log in to Taiga and copy `auth_token` (see [Get a Taiga auth token](#get-a-taiga-auth-token)).
+2. **Image** — From the repo root: `npm run docker:build`
+3. **Cursor** — Add the MCP block below to **Settings → MCP** (or `~/.cursor/mcp.json`), set `TAIGA_TOKEN`, restart Cursor.
+4. **Try** — In chat: *“Use `taiga_list_projects` and summarize my projects.”*
+
+```json
+{
+  "mcpServers": {
+    "taiga": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "--add-host=host.docker.internal:host-gateway",
+        "-e", "TAIGA_API_URL=http://host.docker.internal:9000/api/v1",
+        "-e", "TAIGA_TOKEN=YOUR_AUTH_TOKEN_HERE",
+        "taiga-mcp:local"
+      ]
+    }
+  }
+}
+```
+
+Replace `YOUR_AUTH_TOKEN_HERE`. On macOS, `host.docker.internal` often works without `--add-host`; keep it for Linux.
+
+---
+
+## Table of contents
+
+- [Prerequisites](#prerequisites)
+- [Setup](#setup)
+  - [Get a Taiga auth token](#get-a-taiga-auth-token)
+  - [Build the Docker image](#build-the-docker-image)
+  - [Configure Cursor MCP](#configure-cursor-mcp)
+- [Example prompts](#example-prompts)
+- [MCP tools reference](#mcp-tools-reference)
+- [Identifiers and conventions](#identifiers-and-conventions)
+- [Recommended story format](#recommended-story-format)
+- [Local development](#local-development)
+- [Docker Compose](#docker-compose)
+- [Environment variables](#environment-variables)
+- [Testing](#testing)
+- [Troubleshooting](#troubleshooting)
+- [Security](#security)
+- [Architecture](#architecture)
+- [Documentation](#documentation)
+- [License](#license)
+
+---
+
+## Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/)
+- Taiga reachable at `http://localhost:9000` (or change URLs below)
+- At least one Taiga **project** and **user story** (create them in the Taiga UI if needed)
+
+## Setup
+
+### Get a Taiga auth token
+
+```bash
+curl -s -X POST http://localhost:9000/api/v1/auth \
+  -H "Content-Type: application/json" \
+  -d '{"type":"normal","username":"admin","password":"YOUR_PASSWORD"}' \
+  | jq -r '.auth_token'
+```
+
+Tokens expire; repeat login when API calls return **HTTP 401**.
+
+### Build the Docker image
+
+TypeScript is compiled on the host, then copied into the image (avoids flaky `npm` inside Docker):
+
+```bash
+cd /path/to/taiga-cursor-connect
+npm run docker:build
+```
+
+Manual equivalent:
+
+```bash
+npm ci && npm run build && npm ci --omit=dev
+docker build -t taiga-mcp:local .
+```
+
+The image uses prebuilt `node_modules` and `dist` from the host — no install step in the Dockerfile.
+
+### Configure Cursor MCP
+
+Add the [Quick start](#quick-start) JSON to Cursor. After saving, restart Cursor. If the server fails, check **Output → MCP**.
+
+---
+
+## Example prompts
+
+**Discover and fetch**
+
+```text
+Use taiga_list_projects, then taiga_get_story for project <slug> story ref 1 with includeHistory true.
+Summarize acceptance criteria and prior comments. Propose a plan; do not code until I approve.
+```
+
+**Search**
+
+```text
+Use taiga_search on project <slug> with text "authentication" and open the best matching user story.
+```
+
+**Post progress (slug + ref)**
+
+```text
+Use taiga_comment_on_story with projectSlug <slug>, storyRef 1, and a short summary of what was implemented.
+```
+
+**Close a task**
+
+```text
+Use taiga_update_task with projectSlug <slug>, taskRef 2, isClosed true.
+Or set statusName to the exact label shown in Taiga (e.g. "Done").
+```
+
+**Bulk plan sync**
+
+```text
+Use taiga_bulk_sync_tasks_csv with projectSlug <slug>, csvPath /absolute/path/to/plan/L5/tasks.csv, dryRun true.
+Review the result; if correct, run again with dryRun false.
+```
+
+See [docs/bulk-sync-example.md](docs/bulk-sync-example.md) for CSV shape and idempotency.
+
+---
+
+## MCP tools reference
+
+### Discovery (11)
 
 | Tool | Description |
 |------|-------------|
 | `taiga_list_projects` | List projects (id, slug, name) |
 | `taiga_get_project` | Project detail + modules (epics, issues, wiki) |
-| `taiga_list_user_stories` | List stories; filters: `milestoneId`, `statusName`, `tags`, `epicId`, `page` |
-| `taiga_list_tasks` | List tasks; filters + `userStoryId` |
-| `taiga_list_issues` | List issues; filters + pagination |
-| `taiga_list_epics` | List epics; filters + pagination |
-| `taiga_list_milestones` | List sprints/milestones |
+| `taiga_list_user_stories` | Stories; filters: `milestoneId`, `statusName`, `tags`, `epicId`, `page` |
+| `taiga_list_tasks` | Tasks; filters + `userStoryId` |
+| `taiga_list_issues` | Issues; filters + pagination |
+| `taiga_list_epics` | Epics; filters + pagination |
+| `taiga_list_milestones` | Sprints / milestones |
 | `taiga_list_statuses` | Statuses for `user_story`, `task`, `issue`, `epic` |
 | `taiga_list_members` | Members (`user_id` for assignee) |
 | `taiga_list_points` | Story point scale |
-| `taiga_search` | Full-text search in project |
+| `taiga_search` | Full-text search in a project |
 
-### Read
+### Read (8)
 
 | Tool | Description |
 |------|-------------|
@@ -30,150 +179,62 @@ MCP server that connects [Cursor](https://cursor.com) to [Taiga](https://taiga.i
 | `taiga_get_issue` / `taiga_get_issue_history` | Issue detail / history |
 | `taiga_get_epic` | Epic detail |
 
-### Create
+### Create (5)
 
 | Tool | Description |
 |------|-------------|
-| `taiga_create_milestone` | Create sprint (`slug`, dates) |
-| `taiga_create_epic` | Create epic + `tags`, status, milestone |
-| `taiga_create_story` | Create story + `epicId`, `tags`, `dueDate`, `estimateHours` |
-| `taiga_create_task` | Create task + parent story, tags |
-| `taiga_create_issue` | Create issue |
+| `taiga_create_milestone` | Sprint (`slug`, dates) |
+| `taiga_create_epic` | Epic + tags, status, milestone |
+| `taiga_create_story` | Story + `epicId`, `tags`, `dueDate`, `estimateHours` |
+| `taiga_create_task` | Task + parent story, tags |
+| `taiga_create_issue` | Issue |
 
-### Update / link / order
+### Update, link, and order (11)
 
 | Tool | Description |
 |------|-------------|
 | `taiga_update_milestone` | Name, dates, `closed` (gates) |
 | `taiga_update_story` / `task` / `issue` / `epic` | Status, tags, blocked, `unassign`, milestone |
-| `taiga_update_task` | Also `userStoryId` to move parent |
+| `taiga_update_task` | Also `userStoryId` to reparent |
 | `taiga_link_story_to_epic` / `taiga_unlink_story_from_epic` | Epic relations |
 | `taiga_update_story_backlog_order` | JSON `[{storyRef, order}]` |
 | `taiga_update_story_sprint_order` | Sprint board order |
 | `taiga_set_story_blocked_by` | `blockedByThreadId` → blocked note |
 
-### Comments
+### Comments (4)
 
 | Tool | Description |
 |------|-------------|
 | `taiga_comment_on_story` / `task` / `issue` / `epic` | Add comment |
 
-### Bulk / archive / delete
+### Bulk, archive, delete (7)
 
 | Tool | Description |
 |------|-------------|
 | `taiga_bulk_sync_tasks_csv` | Sync `plan/L5/tasks.csv`; `dryRun`, idempotency |
-| `taiga_archive_*` | Soft-close story/task/epic/issue |
+| `taiga_archive_*` | Soft-close story / task / epic / issue |
 | `taiga_delete_*` | Hard delete (`confirm: true`) |
 
-Exchange R1 bootstrap guide: [docs/exchange-r1-bootstrap.md](docs/exchange-r1-bootstrap.md)
+---
 
-### Identifiers
+## Identifiers and conventions
 
-- **Ref** — number shown in the Taiga UI (`#42`).
-- **Id** — internal Taiga database id (returned by get/create tools).
+| Term | Meaning |
+|------|---------|
+| **Ref** | Number in the Taiga UI (`#42`) |
+| **Id** | Internal Taiga database id (from get/create tools) |
 
-Most tools accept **either** id **or** `projectSlug` + ref. Updates accept `statusName`, `assignedToId`, `unassign: true`, comma-separated `tags`, `isBlocked`, `blockedNote`, and milestone fields. Pass `page` on list tools for paginated `{ items, total, page }` responses.
+Most tools accept **either** id **or** `projectSlug` + ref.
 
-Writes use optimistic concurrency (`version` on PATCH) with automatic retry on version conflicts. HTTP 429 responses are retried with backoff.
+**Common update fields:** `statusName`, `assignedToId`, `unassign: true`, comma-separated `tags`, `isBlocked`, `blockedNote`, milestone fields. List tools accept `page` and return `{ items, total, page }`.
 
-`taiga_get_story` returns `points_by_role` (human-readable point names) in addition to raw `points` ids.
+`taiga_get_story` includes `points_by_role` (readable point names) alongside raw `points` ids.
 
-## Prerequisites
+---
 
-- Docker
-- Taiga running at `http://localhost:9000` (or adjust URLs)
-- At least one Taiga **project** and **user story**
+## Recommended story format
 
-## 1. Get a Taiga auth token
-
-```bash
-curl -s -X POST http://localhost:9000/api/v1/auth \
-  -H "Content-Type: application/json" \
-  -d '{"type":"normal","username":"admin","password":"YOUR_PASSWORD"}' \
-  | jq -r '.auth_token'
-```
-
-Tokens expire; repeat login when you get HTTP 401.
-
-## 2. Build the Docker image
-
-Compile TypeScript on the host, then build the image (avoids npm issues inside Docker):
-
-```bash
-cd /path/to/taiga-cursor-connect
-npm run docker:build
-```
-
-Or manually:
-
-```bash
-npm ci && npm run build && npm ci --omit=dev
-docker build -t taiga-mcp:local .
-```
-
-The image copies host `node_modules` and `dist` (no `npm` inside Docker — avoids flaky in-container installs).
-
-## 3. Configure Cursor MCP
-
-Add to Cursor **Settings → MCP** (or `~/.cursor/mcp.json`):
-
-```json
-{
-  "mcpServers": {
-    "taiga": {
-      "command": "docker",
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "--add-host=host.docker.internal:host-gateway",
-        "-e",
-        "TAIGA_API_URL=http://host.docker.internal:9000/api/v1",
-        "-e",
-        "TAIGA_TOKEN=YOUR_AUTH_TOKEN_HERE",
-        "taiga-mcp:local"
-      ]
-    }
-  }
-}
-```
-
-Replace `YOUR_AUTH_TOKEN_HERE` with your token.
-
-Restart Cursor after saving. Check **Output → MCP** if the server fails to start.
-
-On macOS, `host.docker.internal` usually works without `--add-host`; keep it for Linux compatibility.
-
-## 4. Example prompts in Cursor
-
-**Discover and fetch:**
-
-```text
-Use taiga_list_projects, then taiga_get_story for project <slug> story ref 1 with includeHistory true.
-Summarize acceptance criteria and prior comments. Propose a plan; do not code until I approve.
-```
-
-**Search:**
-
-```text
-Use taiga_search on project <slug> with text "authentication" and open the best matching user story.
-```
-
-**Post progress (slug + ref, no id required):**
-
-```text
-Use taiga_comment_on_story with projectSlug <slug>, storyRef 1, and a short summary of what was implemented.
-```
-
-**Close a task:**
-
-```text
-Use taiga_update_task with projectSlug <slug>, taskRef 2, isClosed true.
-Or set statusName to the exact label shown in Taiga (e.g. "Done").
-```
-
-## Recommended Taiga story format
+Structured descriptions help agents parse acceptance criteria:
 
 ```markdown
 ## User Story
@@ -189,66 +250,148 @@ As a user, I want … so that …
 - Module: …
 ```
 
-## Local development (without Docker)
+---
+
+## Local development
+
+Without Docker:
 
 ```bash
 cp .env.example .env
-# Set TAIGA_API_URL=http://localhost:9000/api/v1 and TAIGA_TOKEN
+# TAIGA_API_URL=http://localhost:9000/api/v1
+# TAIGA_TOKEN=<token>
 
 npm install
 npm run dev
 ```
 
-Use `TAIGA_API_URL=http://localhost:9000/api/v1` when running on the host (not `host.docker.internal`).
+Use `http://localhost:9000/api/v1` on the host — not `host.docker.internal`.
 
-## docker compose (optional)
+Production-style run after build:
+
+```bash
+npm run build && npm start
+```
+
+Wire Cursor to stdio directly (example):
+
+```json
+{
+  "mcpServers": {
+    "taiga": {
+      "command": "npx",
+      "args": ["tsx", "/absolute/path/to/taiga-cursor-connect/src/server.ts"],
+      "env": {
+        "TAIGA_API_URL": "http://localhost:9000/api/v1",
+        "TAIGA_TOKEN": "YOUR_AUTH_TOKEN_HERE"
+      }
+    }
+  }
+}
+```
+
+---
+
+## Docker Compose
 
 ```bash
 cp .env.example .env
-# Fill TAIGA_TOKEN
+# Set TAIGA_TOKEN
 
 docker compose build
 docker compose run --rm taiga-mcp
 ```
 
-The process waits on stdio (normal for MCP).
+The process waits on stdio (normal for MCP). Prefer the [Cursor docker `run` config](#configure-cursor-mcp) for daily use.
 
-## Troubleshooting
+---
 
-| Issue | Fix |
-|-------|-----|
-| `Missing TAIGA_API_URL or TAIGA_TOKEN` | Pass `-e` flags in Cursor MCP config |
-| HTTP 401 | Refresh token via `/auth` |
-| Story not found | Check project **slug** (URL) and story **ref** (#number) |
-| Status not found | Use exact Taiga status label for `statusName`, or pass `statusId` |
-| Cannot reach Taiga from container | Ensure Taiga is on host port 9000; test: `docker run --rm --add-host=host.docker.internal:host-gateway curlimages/curl -s http://host.docker.internal:9000/api/v1/` |
-| No projects | Create a project in Taiga UI first |
-| MCP tools missing or no create tools | Rebuild image (`npm run docker:build`) and restart Cursor so MCP reloads tools |
+## Environment variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `TAIGA_API_URL` | Yes | API base, e.g. `http://host.docker.internal:9000/api/v1` in Docker |
+| `TAIGA_TOKEN` | Yes | Bearer token from `POST /api/v1/auth` |
+
+See [.env.example](.env.example). Never commit tokens to the repo.
+
+---
 
 ## Testing
 
-Unit tests use Node’s built-in test runner (`node:test`) via `tsx`. They do not call a live Taiga instance.
+Unit tests use Node’s built-in runner (`node:test`) via `tsx`. They do **not** call a live Taiga instance.
 
 ```bash
-npm test
-```
-
-Optional live smoke (requires Taiga + token):
-
-```bash
-TAIGA_API_URL=http://localhost:9000/api/v1 TAIGA_TOKEN=... npx tsx scripts/smoke-mcp-tools.ts
-```
-
-For local iteration without rebuilding:
-
-```bash
+npm test          # build + test
 npm run test:watch
 ```
 
-Coverage includes input validation (`schemas.ts`), response trimming, optimistic-concurrency retry logic, and status/milestone resolution (with a mocked HTTP client).
+Optional live smoke (Taiga + token required):
+
+```bash
+npm run smoke
+# or: TAIGA_API_URL=... TAIGA_TOKEN=... npx tsx scripts/smoke-mcp-tools.ts
+```
+
+Coverage includes Zod validation (`schemas.ts`), response trimming, optimistic-concurrency retry, and status/milestone resolution (mocked HTTP).
+
+CI runs `npm test` on push and pull request (Node 22).
+
+---
+
+## Troubleshooting
+
+| Issue | What to try |
+|-------|-------------|
+| `Missing TAIGA_API_URL or TAIGA_TOKEN` | Set `-e` flags in MCP config or `.env` for local dev |
+| HTTP 401 | Refresh token via `/auth` |
+| Story not found | Confirm project **slug** (URL segment) and story **ref** |
+| Status not found | Use exact Taiga label for `statusName`, or pass `statusId` |
+| Cannot reach Taiga from container | Taiga on host port 9000; test: `docker run --rm --add-host=host.docker.internal:host-gateway curlimages/curl -s http://host.docker.internal:9000/api/v1/` |
+| No projects | Create a project in Taiga UI first |
+| Missing or stale tools | `npm run docker:build`, restart Cursor (reloads MCP tool list) |
+
+---
+
+## Security
+
+- **`TAIGA_TOKEN`** grants API access within your Taiga permissions. Keep it in env vars or MCP config, not in git.
+- **`taiga_bulk_sync_tasks_csv`** reads `csvPath` from the host (or paths visible in the container). Only pass trusted paths; a client with MCP access could trigger reads the process can open.
+- Trust boundary: your machine, Docker mounts, and who can invoke MCP tools in Cursor.
+
+---
 
 ## Architecture
 
 ```text
 Cursor IDE  --stdio-->  docker run -i taiga-mcp  --HTTP-->  Taiga :9000 (host)
+                              |
+                         MCP SDK + Zod
+                              |
+                         taiga-client (axios)
 ```
+
+```text
+src/
+  server.ts       MCP tool definitions
+  taiga-client.ts   Taiga REST calls
+  schemas.ts      Input validation
+  plan-sync.ts    CSV bulk sync
+  patch-builders.ts, resolvers.ts, trimmers.ts
+```
+
+---
+
+## Documentation
+
+| Doc | Purpose |
+|-----|---------|
+| [docs/Taiga REST API.md](docs/Taiga%20REST%20API.md) | Taiga API notes used by this server |
+| [docs/exchange-r1-bootstrap.md](docs/exchange-r1-bootstrap.md) | Milestone/epic/CSV bootstrap sequence |
+| [docs/bulk-sync-example.md](docs/bulk-sync-example.md) | Bulk CSV sync prompts and output shape |
+
+---
+
+## License
+
+[MIT](LICENSE) — Copyright (c) 2026 sadeghhp

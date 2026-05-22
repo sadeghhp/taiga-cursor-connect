@@ -2,3 +2,7 @@
 node_modules/
 *.log
 coverage/tmp/*
+dist/
+diary/
+docs/Taiga REST API.md
+Taiga REST API.md
