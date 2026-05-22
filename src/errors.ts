@@ -1,4 +1,4 @@
-import { TaigaError } from "./taiga-client.js";
+import { TaigaError } from "./http/client.js";
 import { SchemaValidationError } from "./schemas.js";
 
 export function formatTaigaError(err: unknown): string {

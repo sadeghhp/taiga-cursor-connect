@@ -11,6 +11,7 @@ import {
   resolvePointsByRole,
   resolveStatusId,
   setClientForTests,
+  trimEpicDetail,
   trimHistory,
   trimStoryWithTasks,
   trimTaskDetail
@@ -240,6 +241,26 @@ describe("trimTaskDetail", () => {
     assert.equal(detail.assigned_to, "Carol");
     assert.equal(detail.is_closed, true);
     assert.equal(detail.blocked_note, "waiting");
+  });
+});
+
+describe("trimEpicDetail", () => {
+  it("maps epic fields to summary", () => {
+    const detail = trimEpicDetail({
+      id: 8,
+      ref: 3,
+      subject: "Platform",
+      description: "Big epic",
+      version: 4,
+      status_extra_info: { name: "In progress", is_closed: false },
+      assigned_to_extra_info: { full_name_display: "Alex" },
+      tags: ["roadmap"]
+    });
+    assert.equal(detail.ref, 3);
+    assert.equal(detail.status, "In progress");
+    assert.equal(detail.assigned_to, "Alex");
+    assert.equal(detail.is_closed, false);
+    assert.deepEqual(detail.tags, ["roadmap"]);
   });
 });
 

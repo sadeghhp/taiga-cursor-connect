@@ -1,0 +1,4 @@
+thread_id,hierarchy_id,title,subphase,module,estimate_h,blocked_by,gate,ac_ids,taiga_story_ref,taiga_task_ref,status
+T00001,M01-E01,Sample bootstrap task A,M01,A,2,,M1.1,,,,
+T00002,M01-E02,Sample bootstrap task B,M01,B,4,T00001,M1.1,,,,
+T00003,M02-E01,Sample bootstrap task C,M02,C,1,,M1.2,,,,

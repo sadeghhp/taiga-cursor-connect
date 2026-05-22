@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   SchemaValidationError,
+  assertEpicRefValid,
   assertIssueRefValid,
   assertIssueUpdateValid,
   assertStoryRefValid,
@@ -94,6 +95,22 @@ describe("assertIssueRefValid", () => {
 
   it("rejects invalid ref", () => {
     assert.throws(() => assertIssueRefValid({}), SchemaValidationError);
+  });
+});
+
+describe("assertEpicRefValid", () => {
+  it("accepts epicId alone", () => {
+    assert.doesNotThrow(() => assertEpicRefValid({ epicId: 5 }));
+  });
+
+  it("accepts projectSlug and epicRef", () => {
+    assert.doesNotThrow(() =>
+      assertEpicRefValid({ projectSlug: "my-project", epicRef: 12 })
+    );
+  });
+
+  it("rejects invalid ref", () => {
+    assert.throws(() => assertEpicRefValid({}), SchemaValidationError);
   });
 });
 

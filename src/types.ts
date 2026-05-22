@@ -8,6 +8,24 @@ export interface TaigaProject {
   id: number;
   name: string;
   slug: string;
+  description?: string;
+  is_epics_activated?: boolean;
+  is_issues_activated?: boolean;
+  is_wiki_activated?: boolean;
+  total_milestones?: number | null;
+  total_story_points?: number | null;
+}
+
+export interface ProjectDetailSummary {
+  id: number;
+  slug: string;
+  name: string;
+  description: string | null;
+  is_epics_activated: boolean;
+  is_issues_activated: boolean;
+  is_wiki_activated: boolean;
+  total_milestones: number | null;
+  total_story_points: number | null;
 }
 
 export interface TaigaEpicRef {
@@ -105,6 +123,31 @@ export interface TaigaMilestone {
   id: number;
   name: string;
   slug: string;
+  version?: number;
+  closed?: boolean;
+  estimated_start?: string | null;
+  estimated_finish?: string | null;
+}
+
+export interface TaigaMembership {
+  id: number;
+  user: number;
+  user_email?: string;
+  user_full_name?: string;
+  role_name?: string;
+}
+
+export interface TaigaEpic {
+  id: number;
+  ref: number;
+  subject: string;
+  description?: string;
+  version: number;
+  project?: number;
+  status_extra_info?: TaigaExtraInfo & { is_closed?: boolean };
+  assigned_to_extra_info?: TaigaExtraInfo | null;
+  is_closed?: boolean;
+  tags?: Array<string | [string, string | null]>;
 }
 
 export interface UserStoryListItem {
@@ -132,6 +175,56 @@ export interface IssueRefInput {
   issueId?: number;
   projectSlug?: string;
   issueRef?: number;
+}
+
+export interface EpicRefInput {
+  epicId?: number;
+  projectSlug?: string;
+  epicRef?: number;
+}
+
+export interface MilestoneRefInput {
+  milestoneId?: number;
+  projectSlug?: string;
+  milestoneSlug?: string;
+}
+
+export interface ListQuery {
+  milestoneId?: number;
+  statusName?: string;
+  tags?: string[];
+  epicId?: number;
+  userStoryId?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface PaginatedResult<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  total: number;
+  paginated: boolean;
+}
+
+export interface EpicListSummary {
+  id: number;
+  ref: number;
+  subject: string;
+  status: string | null;
+  is_closed: boolean;
+}
+
+export interface TaigaRole {
+  id: number;
+  name: string;
+  computable?: boolean;
+}
+
+export interface PointSummary {
+  id: number;
+  name: string;
+  value: number | null;
 }
 
 export interface TaigaIssue {
@@ -241,4 +334,55 @@ export interface UserStoryListSummary {
   status: string | null;
   milestone: string | null;
   is_closed: boolean;
+}
+
+export interface MilestoneSummary {
+  id: number;
+  name: string;
+  slug: string;
+  closed: boolean;
+  estimated_start: string | null;
+  estimated_finish: string | null;
+}
+
+export interface StatusSummary {
+  id: number;
+  name: string;
+  is_closed: boolean;
+}
+
+export interface MemberSummary {
+  user_id: number;
+  full_name: string | null;
+  username: string | null;
+  role: string | null;
+}
+
+export interface TaskListSummary {
+  id: number;
+  ref: number;
+  subject: string;
+  status: string | null;
+  is_closed: boolean;
+  user_story: number | null;
+}
+
+export interface IssueListSummary {
+  id: number;
+  ref: number;
+  subject: string;
+  status: string | null;
+  is_closed: boolean;
+}
+
+export interface EpicDetailSummary {
+  id: number;
+  ref: number;
+  subject: string;
+  description: string | null;
+  status: string | null;
+  assigned_to: string | null;
+  is_closed: boolean;
+  version: number;
+  tags: string[];
 }

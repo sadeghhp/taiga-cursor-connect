@@ -2,35 +2,78 @@
 
 MCP server that connects [Cursor](https://cursor.com) to [Taiga](https://taiga.io) via the REST API. Runs in Docker; Cursor spawns the container over stdio.
 
-## Tools
+## Tools (v0.5.0 — 46 tools)
+
+### Discovery
 
 | Tool | Description |
 |------|-------------|
 | `taiga_list_projects` | List projects (id, slug, name) |
-| `taiga_list_user_stories` | List user stories in a project (optional milestone filter) |
-| `taiga_search` | Search user stories, tasks, epics, and issues in a project by text |
-| `taiga_get_story` | Fetch a user story by **id** or slug+ref, tasks, `points_by_role`, optional history |
-| `taiga_get_story_history` | Activity history for a story (by id or slug+ref) |
-| `taiga_get_task` | Fetch a task by internal id or project slug + task ref |
-| `taiga_get_task_history` | Activity history for a task (by id or slug+ref) |
-| `taiga_get_issue` | Fetch an issue by internal id or project slug + issue ref |
-| `taiga_get_issue_history` | Activity history for an issue (by id or slug+ref) |
-| `taiga_create_story` | Create a user story in a project |
-| `taiga_create_task` | Create a task (optional parent `userStoryId`) |
-| `taiga_create_issue` | Create an issue in a project |
-| `taiga_comment_on_story` | Add a comment (by story id or project slug + story ref) |
-| `taiga_comment_on_task` | Add a comment (by task id or project slug + task ref) |
-| `taiga_comment_on_issue` | Add a comment (by issue id or project slug + issue ref) |
-| `taiga_update_story` | Update story: status, milestone, assignee, tags, blocked, subject, description |
-| `taiga_update_task` | Update task: status, milestone, assignee, tags, blocked, subject, description |
-| `taiga_update_issue` | Update issue: status, milestone, assignee, tags, blocked, subject, description |
+| `taiga_get_project` | Project detail + modules (epics, issues, wiki) |
+| `taiga_list_user_stories` | List stories; filters: `milestoneId`, `statusName`, `tags`, `epicId`, `page` |
+| `taiga_list_tasks` | List tasks; filters + `userStoryId` |
+| `taiga_list_issues` | List issues; filters + pagination |
+| `taiga_list_epics` | List epics; filters + pagination |
+| `taiga_list_milestones` | List sprints/milestones |
+| `taiga_list_statuses` | Statuses for `user_story`, `task`, `issue`, `epic` |
+| `taiga_list_members` | Members (`user_id` for assignee) |
+| `taiga_list_points` | Story point scale |
+| `taiga_search` | Full-text search in project |
+
+### Read
+
+| Tool | Description |
+|------|-------------|
+| `taiga_get_story` | Story + tasks + `points_by_role`; optional history |
+| `taiga_get_story_history` | Story activity |
+| `taiga_get_task` / `taiga_get_task_history` | Task detail / history |
+| `taiga_get_issue` / `taiga_get_issue_history` | Issue detail / history |
+| `taiga_get_epic` | Epic detail |
+
+### Create
+
+| Tool | Description |
+|------|-------------|
+| `taiga_create_milestone` | Create sprint (`slug`, dates) |
+| `taiga_create_epic` | Create epic + `tags`, status, milestone |
+| `taiga_create_story` | Create story + `epicId`, `tags`, `dueDate`, `estimateHours` |
+| `taiga_create_task` | Create task + parent story, tags |
+| `taiga_create_issue` | Create issue |
+
+### Update / link / order
+
+| Tool | Description |
+|------|-------------|
+| `taiga_update_milestone` | Name, dates, `closed` (gates) |
+| `taiga_update_story` / `task` / `issue` / `epic` | Status, tags, blocked, `unassign`, milestone |
+| `taiga_update_task` | Also `userStoryId` to move parent |
+| `taiga_link_story_to_epic` / `taiga_unlink_story_from_epic` | Epic relations |
+| `taiga_update_story_backlog_order` | JSON `[{storyRef, order}]` |
+| `taiga_update_story_sprint_order` | Sprint board order |
+| `taiga_set_story_blocked_by` | `blockedByThreadId` → blocked note |
+
+### Comments
+
+| Tool | Description |
+|------|-------------|
+| `taiga_comment_on_story` / `task` / `issue` / `epic` | Add comment |
+
+### Bulk / archive / delete
+
+| Tool | Description |
+|------|-------------|
+| `taiga_bulk_sync_tasks_csv` | Sync `plan/L5/tasks.csv`; `dryRun`, idempotency |
+| `taiga_archive_*` | Soft-close story/task/epic/issue |
+| `taiga_delete_*` | Hard delete (`confirm: true`) |
+
+Exchange R1 bootstrap guide: [docs/exchange-r1-bootstrap.md](docs/exchange-r1-bootstrap.md)
 
 ### Identifiers
 
 - **Ref** — number shown in the Taiga UI (`#42`).
 - **Id** — internal Taiga database id (returned by get/create tools).
 
-Most read/write tools accept **either** id **or** `projectSlug` + ref. Updates accept `statusName` (UI label) or `statusId`, plus optional `assignedToId`, comma-separated `tags`, `isBlocked`, `blockedNote`, and `milestoneSlug` / `milestoneId` (stories, tasks, issues).
+Most tools accept **either** id **or** `projectSlug` + ref. Updates accept `statusName`, `assignedToId`, `unassign: true`, comma-separated `tags`, `isBlocked`, `blockedNote`, and milestone fields. Pass `page` on list tools for paginated `{ items, total, page }` responses.
 
 Writes use optimistic concurrency (`version` on PATCH) with automatic retry on version conflicts. HTTP 429 responses are retried with backoff.
 
@@ -180,7 +223,7 @@ The process waits on stdio (normal for MCP).
 | Status not found | Use exact Taiga status label for `statusName`, or pass `statusId` |
 | Cannot reach Taiga from container | Ensure Taiga is on host port 9000; test: `docker run --rm --add-host=host.docker.internal:host-gateway curlimages/curl -s http://host.docker.internal:9000/api/v1/` |
 | No projects | Create a project in Taiga UI first |
-| MCP tools missing | Restart Cursor; rebuild image: `npm run docker:build` |
+| MCP tools missing or no create tools | Rebuild image (`npm run docker:build`) and restart Cursor so MCP reloads tools |
 
 ## Testing
 
@@ -188,6 +231,12 @@ Unit tests use Node’s built-in test runner (`node:test`) via `tsx`. They do no
 
 ```bash
 npm test
+```
+
+Optional live smoke (requires Taiga + token):
+
+```bash
+TAIGA_API_URL=http://localhost:9000/api/v1 TAIGA_TOKEN=... npx tsx scripts/smoke-mcp-tools.ts
 ```
 
 For local iteration without rebuilding:
