@@ -1,0 +1,7 @@
+.env
+.git
+src
+*.log
+README.md
+Taiga REST API.md
+scripts

@@ -1,0 +1,11 @@
+services:
+  taiga-mcp:
+    build: .
+    image: taiga-mcp:local
+    stdin_open: true
+    tty: false
+    environment:
+      TAIGA_API_URL: ${TAIGA_API_URL:-http://host.docker.internal:9000/api/v1}
+      TAIGA_TOKEN: ${TAIGA_TOKEN:?Set TAIGA_TOKEN in .env}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

@@ -1,0 +1,25 @@
+{
+  "name": "taiga-cursor-connect",
+  "version": "0.2.1",
+  "description": "MCP server connecting Cursor to Taiga",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "prebuild:docker": "npm ci && npm run build && npm ci --omit=dev",
+    "docker:build": "npm run prebuild:docker && docker build -t taiga-mcp:local .",
+    "start": "node dist/server.js",
+    "dev": "tsx src/server.ts",
+    "test": "npm run build && tsx --test src/taiga-client.test.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "axios": "^1.7.0",
+    "dotenv": "^16.4.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}
