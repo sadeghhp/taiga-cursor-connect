@@ -102,6 +102,18 @@ import {
   updateStoryBacklogOrder,
   updateStorySprintOrder,
   updateTask,
+  getKanbanBoard,
+  updateStoryKanbanOrder,
+  moveStoryOnKanban,
+  listUserStoryStatuses,
+  createUserStoryStatus,
+  updateUserStoryStatus,
+  deleteUserStoryStatus,
+  reorderUserStoryStatuses,
+  listSwimlanes,
+  createSwimlane,
+  updateSwimlane,
+  deleteSwimlane,
   type CreateOptionalFields,
   type EpicUpdateFields,
   type IssueUpdateFields,
@@ -144,6 +156,11 @@ const storyOrderEntrySchema = z.object({
   order: z.number()
 });
 const storyOrdersSchema = z.array(storyOrderEntrySchema);
+const statusOrderEntrySchema = z.object({
+  statusId: z.number(),
+  order: z.number()
+});
+const statusOrdersSchema = z.array(statusOrderEntrySchema);
 
 function parseJsonParam<T>(raw: string, schema: z.ZodType<T>): T {
   return schema.parse(JSON.parse(raw));
@@ -183,6 +200,8 @@ function pickCommonUpdate(args: {
   unlinkEpic?: boolean;
   dueDate?: string;
   estimateHours?: number;
+  swimlaneId?: number;
+  swimlaneName?: string;
   userStoryId?: number;
   typeName?: string;
   typeId?: number;
@@ -208,6 +227,8 @@ function pickCommonUpdate(args: {
     unlinkEpic: args.unlinkEpic,
     dueDate: args.dueDate,
     estimateHours: args.estimateHours,
+    swimlaneId: args.swimlaneId,
+    swimlaneName: args.swimlaneName,
     userStoryId: args.userStoryId,
     typeName: args.typeName,
     typeId: args.typeId,
@@ -227,6 +248,8 @@ function pickCreateOptions(args: {
   tags?: string;
   dueDate?: string;
   estimateHours?: number;
+  swimlaneId?: number;
+  swimlaneName?: string;
   typeName?: string;
   typeId?: number;
   priorityName?: string;
@@ -243,6 +266,8 @@ function pickCreateOptions(args: {
     tags: parseTagsParam(args.tags),
     dueDate: args.dueDate,
     estimateHours: args.estimateHours,
+    swimlaneId: args.swimlaneId,
+    swimlaneName: args.swimlaneName,
     typeName: args.typeName,
     typeId: args.typeId,
     priorityName: args.priorityName,
@@ -259,6 +284,8 @@ function pickCreateOptions(args: {
     (opts.tags != null && opts.tags.length > 0) ||
     opts.dueDate != null ||
     opts.estimateHours != null ||
+    opts.swimlaneId != null ||
+    opts.swimlaneName != null ||
     opts.typeName != null ||
     opts.typeId != null ||
     opts.priorityName != null ||
@@ -299,7 +326,7 @@ const attachmentEntitySchema = z
 
 const server = new McpServer({
   name: "taiga-mcp",
-  version: "0.6.0"
+  version: "0.7.0"
 });
 
 server.tool("taiga_list_projects", {}, async () => {
@@ -1054,6 +1081,283 @@ server.tool(
 );
 
 server.tool(
+  "taiga_get_kanban_board",
+  {
+    projectSlug: z.string(),
+    includeClosed: z
+      .boolean()
+      .optional()
+      .describe("Include closed user stories (default false)"),
+    swimlaneId: z
+      .number()
+      .optional()
+      .describe("Filter cards to a single swimlane id")
+  },
+  async ({ projectSlug, includeClosed, swimlaneId }) => {
+    try {
+      return jsonResult(
+        await getKanbanBoard(projectSlug, { includeClosed, swimlaneId })
+      );
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_update_story_kanban_order",
+  {
+    projectSlug: z.string(),
+    orders: z
+      .string()
+      .describe('JSON array [{\"storyRef\":1,\"order\":10}] or storyId+order')
+  },
+  async ({ projectSlug, orders }) => {
+    try {
+      const parsed = parseJsonParam(orders, storyOrdersSchema);
+      await updateStoryKanbanOrder(
+        projectSlug,
+        parsed.map((e) => ({
+          storyRef: e.storyRef,
+          storyId: e.storyId,
+          order: e.order,
+          projectSlug
+        }))
+      );
+      return toolText("Kanban order updated.");
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_move_story_on_kanban",
+  {
+    ...storyRefFields,
+    projectSlug: z.string(),
+    statusName: storyUpdateFieldsShape.statusName,
+    statusId: storyUpdateFieldsShape.statusId,
+    swimlaneId: storyUpdateFieldsShape.swimlaneId,
+    swimlaneName: storyUpdateFieldsShape.swimlaneName,
+    kanbanOrder: z
+      .number()
+      .optional()
+      .describe("New kanban_order within the status column")
+  },
+  async (args) => {
+    try {
+      assertStoryRefValid(args);
+      if (
+        args.statusName == null &&
+        args.statusId == null &&
+        args.swimlaneId == null &&
+        args.swimlaneName == null &&
+        args.kanbanOrder == null
+      ) {
+        return toolError(
+          "Provide at least one of statusName, statusId, swimlaneId, swimlaneName, or kanbanOrder."
+        );
+      }
+      return jsonResult(
+        await moveStoryOnKanban({
+          projectSlug: args.projectSlug,
+          storyId: args.storyId,
+          storyRef: args.storyRef,
+          statusName: args.statusName,
+          statusId: args.statusId,
+          swimlaneId: args.swimlaneId,
+          swimlaneName: args.swimlaneName,
+          kanbanOrder: args.kanbanOrder
+        })
+      );
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_create_user_story_status",
+  {
+    projectSlug: z.string(),
+    name: z.string().describe("Column name e.g. Review"),
+    color: z
+      .string()
+      .optional()
+      .describe("HEX color e.g. #AAAAAA"),
+    order: z.number().optional().describe("Column order on board"),
+    wipLimit: z
+      .number()
+      .optional()
+      .describe("Max cards allowed in this column"),
+    isClosed: z.boolean().optional().describe("Closed/archived column")
+  },
+  async (args) => {
+    try {
+      return jsonResult(
+        await createUserStoryStatus(args.projectSlug, {
+          name: args.name,
+          color: args.color,
+          order: args.order,
+          wipLimit: args.wipLimit,
+          isClosed: args.isClosed
+        })
+      );
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_update_user_story_status",
+  {
+    projectSlug: z.string(),
+    statusId: z.number().optional(),
+    statusName: z.string().optional(),
+    name: z.string().optional(),
+    color: z.string().optional(),
+    order: z.number().optional(),
+    wipLimit: z.number().optional(),
+    isClosed: z.boolean().optional()
+  },
+  async (args) => {
+    try {
+      if (args.statusId == null && args.statusName == null) {
+        return toolError("Provide statusId or statusName.");
+      }
+      return jsonResult(
+        await updateUserStoryStatus(args.projectSlug, {
+          statusId: args.statusId,
+          statusName: args.statusName,
+          name: args.name,
+          color: args.color,
+          order: args.order,
+          wipLimit: args.wipLimit,
+          isClosed: args.isClosed
+        })
+      );
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_delete_user_story_status",
+  {
+    projectSlug: z.string(),
+    statusId: z.number().describe("User story status (column) id")
+  },
+  async ({ projectSlug, statusId }) => {
+    try {
+      await deleteUserStoryStatus(projectSlug, statusId);
+      return toolText(`User story status ${statusId} deleted.`);
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_reorder_user_story_statuses",
+  {
+    projectSlug: z.string(),
+    orders: z
+      .string()
+      .describe('JSON array [{\"statusId\":1,\"order\":10}]')
+  },
+  async ({ projectSlug, orders }) => {
+    try {
+      const parsed = parseJsonParam(orders, statusOrdersSchema);
+      await reorderUserStoryStatuses(projectSlug, parsed);
+      return toolText("User story status order updated.");
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_list_swimlanes",
+  { projectSlug: z.string() },
+  async ({ projectSlug }) => {
+    try {
+      return jsonResult(await listSwimlanes(projectSlug));
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_create_swimlane",
+  {
+    projectSlug: z.string(),
+    name: z.string(),
+    order: z.number().optional()
+  },
+  async (args) => {
+    try {
+      return jsonResult(
+        await createSwimlane(args.projectSlug, {
+          name: args.name,
+          order: args.order
+        })
+      );
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_update_swimlane",
+  {
+    projectSlug: z.string(),
+    swimlaneId: z.number(),
+    name: z.string().optional(),
+    order: z.number().optional()
+  },
+  async (args) => {
+    try {
+      if (args.name == null && args.order == null) {
+        return toolError("Provide at least one of name or order.");
+      }
+      return jsonResult(
+        await updateSwimlane(args.projectSlug, args.swimlaneId, {
+          name: args.name,
+          order: args.order
+        })
+      );
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_delete_swimlane",
+  {
+    projectSlug: z.string(),
+    swimlaneId: z.number(),
+    moveToSwimlaneId: z
+      .number()
+      .optional()
+      .describe("Move stories to this swimlane before delete")
+  },
+  async ({ projectSlug, swimlaneId, moveToSwimlaneId }) => {
+    try {
+      await deleteSwimlane(projectSlug, swimlaneId, moveToSwimlaneId);
+      return toolText(`Swimlane ${swimlaneId} deleted.`);
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
   "taiga_set_story_blocked_by",
   {
     projectSlug: z.string(),
@@ -1185,6 +1489,8 @@ server.tool(
         milestone: updated.milestone_slug ?? updated.milestone_name ?? null,
         is_closed:
           updated.is_closed ?? updated.status_extra_info?.is_closed ?? false,
+        kanban_order: updated.kanban_order ?? null,
+        swimlane_id: updated.swimlane ?? null,
         version: updated.version
       });
     } catch (err) {

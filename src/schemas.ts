@@ -90,7 +90,12 @@ export const storyUpdateFieldsShape = {
   estimateHours: z
     .number()
     .optional()
-    .describe("Map to nearest story point for computable role")
+    .describe("Map to nearest story point for computable role"),
+  swimlaneId: z.number().optional().describe("Kanban swimlane internal id"),
+  swimlaneName: z
+    .string()
+    .optional()
+    .describe("Kanban swimlane label (case-insensitive)")
 };
 
 export const taskUpdateFieldsShape = {
@@ -134,6 +139,11 @@ export const createOptionalFieldsShape = {
     .number()
     .optional()
     .describe("Map estimate_h to nearest story point"),
+  swimlaneId: z.number().optional().describe("Kanban swimlane internal id"),
+  swimlaneName: z
+    .string()
+    .optional()
+    .describe("Kanban swimlane label (case-insensitive)"),
   typeName: z.string().optional().describe("Issue type label (issues only)"),
   typeId: z.number().optional().describe("Issue type id (issues only)"),
   priorityName: z.string().optional().describe("Priority label (issues only)"),
@@ -238,6 +248,8 @@ type UpdateFieldCheck = {
   unlinkEpic?: boolean;
   dueDate?: string;
   estimateHours?: number;
+  swimlaneId?: number;
+  swimlaneName?: string;
   userStoryId?: number;
   typeName?: string;
   typeId?: number;
@@ -263,6 +275,8 @@ function hasCommonUpdate(d: UpdateFieldCheck): boolean {
     (d.unlinkEpic === true && d.epicId != null) ||
     d.dueDate != null ||
     d.estimateHours != null ||
+    d.swimlaneId != null ||
+    d.swimlaneName != null ||
     d.userStoryId != null
   );
 }

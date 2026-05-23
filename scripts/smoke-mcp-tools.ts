@@ -11,11 +11,13 @@ import {
   deleteProject,
   deleteUserStory,
   getProjectDetail,
+  getKanbanBoard,
   listEpics,
   listIssueTypes,
   listMilestones,
   listProjectTemplates,
-  listProjects
+  listProjects,
+  listSwimlanes
 } from "../src/taiga-client.js";
 import { parsePlanCsv } from "../src/plan-sync.js";
 import { readFile } from "node:fs/promises";
@@ -35,7 +37,18 @@ async function main(): Promise<void> {
 
   console.log(`taiga_get_project ${slug}...`);
   const detail = await getProjectDetail(slug);
-  console.log(`  epics=${detail.is_epics_activated} issues=${detail.is_issues_activated}`);
+  console.log(`  epics=${detail.is_epics_activated} issues=${detail.is_issues_activated} kanban=${detail.is_kanban_activated}`);
+
+  if (detail.is_kanban_activated) {
+    console.log(`taiga_get_kanban_board ${slug}...`);
+    const board = await getKanbanBoard(slug);
+    const cardCount = board.columns.reduce((n, c) => n + c.cards.length, 0);
+    console.log(
+      `  ${board.columns.length} column(s), ${cardCount} card(s), swimlanes=${board.swimlanes_supported}`
+    );
+    const swim = await listSwimlanes(slug);
+    console.log(`  swimlanes supported=${swim.supported} count=${swim.swimlanes.length}`);
+  }
 
   console.log("taiga_list_issue_types...");
   const issueTypes = await listIssueTypes(slug);

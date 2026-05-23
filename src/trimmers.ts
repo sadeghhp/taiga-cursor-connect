@@ -170,6 +170,8 @@ export function trimStoryWithTasks(
     epics: trimEpics(story),
     is_closed:
       story.is_closed ?? story.status_extra_info?.is_closed ?? false,
+    kanban_order: story.kanban_order ?? null,
+    swimlane_id: story.swimlane ?? null,
     tasks: tasks.map(trimTask)
   };
   if (history != null) summary.history = history;

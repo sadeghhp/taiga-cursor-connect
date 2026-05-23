@@ -1,6 +1,6 @@
-# MCP tool catalog (v0.6.0)
+# MCP tool catalog (v0.7.0)
 
-79 tools registered in [`src/server.ts`](../src/server.ts). See [README](../README.md) for parameters and examples.
+90 tools registered in [`src/server.ts`](../src/server.ts). See [README](../README.md) for parameters and examples.
 
 ## Project lifecycle
 
@@ -72,7 +72,21 @@
 - `taiga_unlink_story_from_epic`
 - `taiga_update_story_backlog_order`
 - `taiga_update_story_sprint_order`
+- `taiga_update_story_kanban_order`
+- `taiga_move_story_on_kanban`
 - `taiga_set_story_blocked_by`
+
+## Kanban columns and swimlanes
+
+- `taiga_get_kanban_board`
+- `taiga_create_user_story_status`
+- `taiga_update_user_story_status`
+- `taiga_delete_user_story_status`
+- `taiga_reorder_user_story_statuses`
+- `taiga_list_swimlanes`
+- `taiga_create_swimlane`
+- `taiga_update_swimlane`
+- `taiga_delete_swimlane`
 
 ## Comments
 

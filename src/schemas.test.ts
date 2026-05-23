@@ -155,6 +155,13 @@ describe("assertStoryUpdateValid", () => {
   it("rejects whitespace-only tags", () => {
     assert.throws(() => assertStoryUpdateValid({ tags: "   " }), SchemaValidationError);
   });
+
+  it("accepts swimlane fields", () => {
+    assert.doesNotThrow(() =>
+      assertStoryUpdateValid({ swimlaneName: "Frontend" })
+    );
+    assert.doesNotThrow(() => assertStoryUpdateValid({ swimlaneId: 3 }));
+  });
 });
 
 describe("assertTaskUpdateValid", () => {

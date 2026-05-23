@@ -9,7 +9,7 @@
 | **Protocol** | [Model Context Protocol](https://modelcontextprotocol.io) (stdio) |
 | **Runtime** | Node 22 (Docker image or local `tsx`) |
 | **Taiga** | Self-hosted or cloud; default `http://localhost:9000` |
-| **Version** | 0.6.0 — **79 tools** |
+| **Version** | 0.7.0 — **90 tools** |
 
 ## Why use this
 
@@ -154,6 +154,16 @@ Use taiga_bulk_sync_tasks_csv with projectSlug <slug>, csvPath /absolute/path/to
 Review the result; if correct, run again with dryRun false.
 ```
 
+**Kanban board**
+
+```text
+Use taiga_get_kanban_board with projectSlug <slug> to snapshot columns and cards.
+Use taiga_move_story_on_kanban with storyRef 12 and statusName Done to move a card.
+Use taiga_update_story_kanban_order with orders JSON to reorder within a column.
+Use taiga_create_user_story_status to add a WIP-limited column.
+Use taiga_list_swimlanes when the Taiga instance supports swimlanes.
+```
+
 See [docs/bulk-sync-example.md](docs/bulk-sync-example.md) for CSV shape and idempotency.
 
 ---
@@ -173,7 +183,7 @@ See [docs/bulk-sync-example.md](docs/bulk-sync-example.md) for CSV shape and ide
 | `taiga_list_epics` | Epics; filters + pagination |
 | `taiga_list_milestones` | Sprints / milestones |
 | `taiga_get_milestone` | Single milestone by slug or id |
-| `taiga_list_statuses` | Statuses for `user_story`, `task`, `issue`, `epic` |
+| `taiga_list_statuses` | Statuses for `user_story`, `task`, `issue`, `epic`; user-story rows include `order`, `color`, `wip_limit` |
 | `taiga_list_members` | Members (`user_id` for assignee) |
 | `taiga_list_roles` | Project roles (for invites) |
 | `taiga_list_points` | Story point scale |
@@ -229,7 +239,27 @@ See [docs/bulk-sync-example.md](docs/bulk-sync-example.md) for CSV shape and ide
 | `taiga_link_story_to_epic` / `taiga_unlink_story_from_epic` | Epic relations |
 | `taiga_update_story_backlog_order` | JSON `[{storyRef, order}]` |
 | `taiga_update_story_sprint_order` | Sprint board order |
+| `taiga_update_story_kanban_order` | Kanban card order within columns |
+| `taiga_move_story_on_kanban` | One-shot status, swimlane, and/or kanban order |
 | `taiga_set_story_blocked_by` | `blockedByThreadId` → blocked note |
+
+### Kanban (11)
+
+| Tool | Description |
+|------|-------------|
+| `taiga_get_kanban_board` | Snapshot: columns, cards, swimlanes; filters `includeClosed`, `swimlaneId` |
+| `taiga_update_story_kanban_order` | Bulk kanban card order |
+| `taiga_move_story_on_kanban` | Move card: status and/or swimlane and/or order |
+| `taiga_create_user_story_status` | New Kanban column with optional WIP limit |
+| `taiga_update_user_story_status` | Update column by id or name |
+| `taiga_delete_user_story_status` | Delete column by id |
+| `taiga_reorder_user_story_statuses` | Bulk column order |
+| `taiga_list_swimlanes` | List swimlanes or `supported: false` |
+| `taiga_create_swimlane` | Create swimlane |
+| `taiga_update_swimlane` | Rename/reorder swimlane |
+| `taiga_delete_swimlane` | Delete swimlane; optional `moveToSwimlaneId` |
+
+Swimlanes require a Taiga backend that exposes `/api/v1/swimlanes`; the MCP feature-detects and degrades gracefully when absent.
 
 ### Comments (4)
 

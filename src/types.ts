@@ -143,6 +143,8 @@ export interface TaigaUserStory {
   total_comments?: number;
   epics?: TaigaEpicRef[];
   is_closed?: boolean;
+  kanban_order?: number;
+  swimlane?: number | null;
 }
 
 export interface TaigaTask {
@@ -167,6 +169,43 @@ export interface TaigaStatus {
   name: string;
   is_closed?: boolean;
   project?: number;
+}
+
+export interface TaigaUserStoryStatus {
+  id: number;
+  name: string;
+  order: number;
+  color?: string | null;
+  wip_limit?: number | null;
+  is_closed: boolean;
+  project?: number;
+}
+
+export interface UserStoryStatusSummary {
+  id: number;
+  name: string;
+  order: number;
+  color: string | null;
+  wip_limit: number | null;
+  is_closed: boolean;
+}
+
+export interface TaigaSwimlane {
+  id: number;
+  name: string;
+  order: number;
+  project?: number;
+}
+
+export interface SwimlaneSummary {
+  id: number;
+  name: string;
+  order: number;
+}
+
+export interface SwimlanesSupport {
+  supported: boolean;
+  message?: string;
 }
 
 export interface TaigaHistoryUser {
@@ -243,9 +282,15 @@ export interface UserStoryListItem {
   id: number;
   ref: number;
   subject: string;
+  status?: number;
   status_extra_info?: TaigaExtraInfo;
   milestone_name?: string | null;
   is_closed?: boolean;
+  kanban_order?: number;
+  swimlane?: number | null;
+  assigned_to_extra_info?: TaigaExtraInfo | null;
+  tags?: Array<string | [string, string | null]>;
+  is_blocked?: boolean;
 }
 
 export interface StoryRefInput {
@@ -396,6 +441,8 @@ export interface StorySummary {
   total_comments: number | null;
   epics: EpicSummary[];
   is_closed: boolean;
+  kanban_order: number | null;
+  swimlane_id: number | null;
   tasks: TaskSummary[];
   history?: HistoryEntrySummary[];
 }
@@ -423,6 +470,46 @@ export interface UserStoryListSummary {
   status: string | null;
   milestone: string | null;
   is_closed: boolean;
+  kanban_order: number | null;
+  swimlane_id: number | null;
+}
+
+export interface KanbanCardSummary {
+  id: number;
+  ref: number;
+  subject: string;
+  kanban_order: number | null;
+  swimlane_id: number | null;
+  swimlane_name: string | null;
+  assigned_to: string | null;
+  is_blocked: boolean;
+  tags: string[];
+}
+
+export interface KanbanColumnSummary {
+  id: number;
+  name: string;
+  order: number;
+  color: string | null;
+  wip_limit: number | null;
+  is_closed: boolean;
+  cards: KanbanCardSummary[];
+}
+
+export interface KanbanOrphanedCardSummary {
+  ref: number;
+  subject: string;
+  status_name: string | null;
+}
+
+export interface KanbanBoardSummary {
+  project_slug: string;
+  is_kanban_activated: boolean;
+  swimlanes_supported: boolean;
+  swimlanes: SwimlaneSummary[];
+  columns: KanbanColumnSummary[];
+  orphaned_cards_count: number;
+  orphaned_cards: KanbanOrphanedCardSummary[];
 }
 
 export interface MilestoneSummary {
@@ -438,6 +525,9 @@ export interface StatusSummary {
   id: number;
   name: string;
   is_closed: boolean;
+  order?: number;
+  color?: string | null;
+  wip_limit?: number | null;
 }
 
 export interface MemberSummary {

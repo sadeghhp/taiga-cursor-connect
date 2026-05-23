@@ -114,6 +114,7 @@ import type {
   UserStoryListSummary
 } from "./types.js";
 import { getProjectBySlug } from "./project-context.js";
+import { listUserStoryStatuses } from "./user-story-statuses.js";
 
 export { getProjectBySlug } from "./project-context.js";
 
@@ -277,16 +278,34 @@ export async function updateMilestone(
 export async function listStatuses(
   projectSlug: string,
   entityType: StatusEntityType
-): Promise<{ id: number; name: string; is_closed: boolean }[]> {
+): Promise<
+  {
+    id: number;
+    name: string;
+    is_closed: boolean;
+    order?: number;
+    color?: string | null;
+    wip_limit?: number | null;
+  }[]
+> {
+  if (entityType === "user_story") {
+    const rows = await listUserStoryStatuses(projectSlug);
+    return rows.map((s) => ({
+      id: s.id,
+      name: s.name,
+      is_closed: s.is_closed,
+      order: s.order,
+      color: s.color,
+      wip_limit: s.wip_limit
+    }));
+  }
   const project = await getProjectBySlug(projectSlug);
   const path =
-    entityType === "user_story"
-      ? "/userstory-statuses"
-      : entityType === "task"
-        ? "/task-statuses"
-        : entityType === "issue"
-          ? "/issue-statuses"
-          : "/epic-statuses";
+    entityType === "task"
+      ? "/task-statuses"
+      : entityType === "issue"
+        ? "/issue-statuses"
+        : "/epic-statuses";
   try {
     const res = await getClient().get<{ id: number; name: string; is_closed?: boolean }[]>(
       path,
@@ -910,7 +929,9 @@ export async function listUserStories(
       subject: us.subject,
       status: us.status_extra_info?.name ?? null,
       milestone: us.milestone_name ?? null,
-      is_closed: us.is_closed ?? false
+      is_closed: us.is_closed ?? false,
+      kanban_order: us.kanban_order ?? null,
+      swimlane_id: us.swimlane ?? null
     })
   );
   return result as UserStoryListSummary[] | PaginatedResult<UserStoryListSummary>;
@@ -1140,6 +1161,40 @@ export async function archiveEpic(input: EpicRefInput): Promise<TaigaEpic> {
 export async function archiveIssue(input: IssueRefInput): Promise<TaigaIssue> {
   return updateIssue(input, { isClosed: true });
 }
+
+export {
+  getKanbanBoard,
+  updateStoryKanbanOrder,
+  moveStoryOnKanban,
+  buildKanbanBoardFromData
+} from "./kanban.js";
+export type {
+  StoryOrderEntry as KanbanStoryOrderEntry,
+  GetKanbanBoardOptions,
+  MoveStoryOnKanbanInput
+} from "./kanban.js";
+
+export {
+  listUserStoryStatuses,
+  createUserStoryStatus,
+  updateUserStoryStatus,
+  deleteUserStoryStatus,
+  reorderUserStoryStatuses
+} from "./user-story-statuses.js";
+export type {
+  CreateUserStoryStatusInput,
+  UpdateUserStoryStatusInput,
+  StatusOrderEntry
+} from "./user-story-statuses.js";
+
+export {
+  listSwimlanes,
+  createSwimlane,
+  updateSwimlane,
+  deleteSwimlane,
+  probeSwimlanesSupport
+} from "./swimlanes.js";
+export type { CreateSwimlaneInput, UpdateSwimlaneInput } from "./swimlanes.js";
 
 export {
   listProjectTemplates,

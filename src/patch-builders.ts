@@ -8,6 +8,7 @@ import {
   applyIssueMetadataToBody,
   type IssueMetadataFields
 } from "./metadata.js";
+import { applySwimlaneToBody } from "./swimlanes.js";
 
 export interface CommonUpdateFields {
   statusId?: number;
@@ -30,6 +31,8 @@ export interface StoryUpdateFields extends CommonUpdateFields {
   dueDate?: string;
   estimateHours?: number;
   points?: Record<string, number>;
+  swimlaneId?: number;
+  swimlaneName?: string;
 }
 
 export interface TaskUpdateFields extends CommonUpdateFields {
@@ -70,6 +73,8 @@ export interface CreateOptionalFields {
   priorityName?: string;
   severityId?: number;
   severityName?: string;
+  swimlaneId?: number;
+  swimlaneName?: string;
 }
 
 export function applyCommonPatchFields(
@@ -111,6 +116,12 @@ export async function applyCreateOptions(
   if (entityType === "user_story") {
     if (fields.dueDate != null) body.due_date = fields.dueDate;
     if (fields.points != null) body.points = fields.points;
+    await applySwimlaneToBody(
+      body,
+      projectId,
+      fields.swimlaneId,
+      fields.swimlaneName
+    );
   }
   const milestone = await resolveMilestoneId(
     projectId,
@@ -147,7 +158,9 @@ export function hasStoryPatchFields(fields: StoryUpdateFields): boolean {
     f.milestoneId != null ||
     f.dueDate != null ||
     f.estimateHours != null ||
-    f.points != null
+    f.points != null ||
+    f.swimlaneId != null ||
+    f.swimlaneName != null
   );
 }
 
@@ -170,6 +183,12 @@ export async function buildStoryPatchBody(
   if (milestone != null) body.milestone = milestone;
   if (fields.dueDate != null) body.due_date = fields.dueDate;
   if (fields.points != null) body.points = fields.points;
+  await applySwimlaneToBody(
+    body,
+    projectId,
+    fields.swimlaneId,
+    fields.swimlaneName
+  );
   if (Object.keys(body).length === 0) {
     throw new TaigaError("Provide at least one field to update.");
   }
