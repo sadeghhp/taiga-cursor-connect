@@ -35,6 +35,7 @@
         "--add-host=host.docker.internal:host-gateway",
         "-e", "TAIGA_API_URL=http://host.docker.internal:9000/api/v1",
         "-e", "TAIGA_TOKEN=YOUR_AUTH_TOKEN_HERE",
+        "-e", "TAIGA_MCP_LOG=info",
         "taiga-mcp:local"
       ]
     }
@@ -43,6 +44,8 @@
 ```
 
 Replace `YOUR_AUTH_TOKEN_HERE`. On macOS, `host.docker.internal` often works without `--add-host`; keep it for Linux.
+
+Set `TAIGA_MCP_LOG=info` (optional) to see friendly tool-call logs on **stderr**. The MCP JSON-RPC stream uses **stdout** only — do not redirect stderr into stdout.
 
 ---
 
@@ -396,6 +399,7 @@ The process waits on stdio (normal for MCP). Prefer the [Cursor docker `run` con
 |----------|----------|-------------|
 | `TAIGA_API_URL` | Yes | API base, e.g. `http://host.docker.internal:9000/api/v1` in Docker |
 | `TAIGA_TOKEN` | Yes | Bearer token from `POST /api/v1/auth` |
+| `TAIGA_MCP_LOG` | No | MCP stderr logging: `off` (default), `info` (tool calls), or `debug` (+ HTTP retries) |
 
 See [.env.example](.env.example). Never commit tokens to the repo.
 

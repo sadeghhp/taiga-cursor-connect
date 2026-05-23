@@ -1,3 +1,4 @@
+import { logHttpRetry } from "../mcp-log.js";
 import axios, {
   type AxiosError,
   type AxiosInstance,
@@ -112,7 +113,12 @@ function createClient(): AxiosInstance {
         (config._retry429 ?? 0) < THROTTLE_MAX_RETRIES
       ) {
         config._retry429 = (config._retry429 ?? 0) + 1;
-        await sleep(THROTTLE_BASE_MS * config._retry429);
+        const attempt = config._retry429;
+        const backoffMs = THROTTLE_BASE_MS * attempt;
+        const method = (config.method ?? "get").toUpperCase();
+        const path = config.url ?? "";
+        logHttpRetry("429", attempt, THROTTLE_MAX_RETRIES, method, path);
+        await sleep(backoffMs);
         return instance.request(config);
       }
       return Promise.reject(error);
@@ -159,7 +165,10 @@ export async function patchWithOCC<T extends { version: number }>(
       return;
     } catch (e) {
       lastErr = e;
-      if (attempt < OCC_MAX_RETRIES && isVersionConflict(e)) continue;
+      if (attempt < OCC_MAX_RETRIES && isVersionConflict(e)) {
+        logHttpRetry("occ", attempt + 1, OCC_MAX_RETRIES, "PATCH", "entity");
+        continue;
+      }
       throw wrapAxiosError(e);
     }
   }

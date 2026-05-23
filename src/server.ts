@@ -3,6 +3,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { formatTaigaError } from "./errors.js";
+import { getApiBaseUrl } from "./http/client.js";
+import {
+  getRegisteredToolCount,
+  installToolLogging,
+  logConfigError,
+  logReady
+} from "./mcp-log.js";
 import { bulkSyncTasksCsv } from "./plan-sync.js";
 import {
   listAttachments,
@@ -328,6 +335,8 @@ const server = new McpServer({
   name: "taiga-mcp",
   version: "0.7.0"
 });
+
+installToolLogging(server);
 
 server.tool("taiga_list_projects", {}, async () => {
   try {
@@ -2138,6 +2147,17 @@ server.tool(
     }
   }
 );
+
+try {
+  logReady({
+    version: "0.7.0",
+    apiHost: getApiBaseUrl(),
+    toolCount: getRegisteredToolCount()
+  });
+} catch (err) {
+  logConfigError(formatTaigaError(err));
+  process.exit(1);
+}
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
