@@ -4,6 +4,10 @@ import {
   resolveStatusId,
   type StatusEntityType
 } from "./resolvers.js";
+import {
+  applyIssueMetadataToBody,
+  type IssueMetadataFields
+} from "./metadata.js";
 
 export interface CommonUpdateFields {
   statusId?: number;
@@ -37,6 +41,12 @@ export interface TaskUpdateFields extends CommonUpdateFields {
 export interface IssueUpdateFields extends CommonUpdateFields {
   milestoneId?: number;
   milestoneSlug?: string;
+  typeId?: number;
+  typeName?: string;
+  priorityId?: number;
+  priorityName?: string;
+  severityId?: number;
+  severityName?: string;
 }
 
 export interface EpicUpdateFields extends CommonUpdateFields {
@@ -54,6 +64,12 @@ export interface CreateOptionalFields {
   dueDate?: string;
   estimateHours?: number;
   points?: Record<string, number>;
+  typeId?: number;
+  typeName?: string;
+  priorityId?: number;
+  priorityName?: string;
+  severityId?: number;
+  severityName?: string;
 }
 
 export function applyCommonPatchFields(
@@ -102,6 +118,9 @@ export async function applyCreateOptions(
     fields.milestoneId
   );
   if (milestone != null) body.milestone = milestone;
+  if (entityType === "issue") {
+    await applyIssueMetadataToBody(body, projectId, fields as IssueMetadataFields);
+  }
 }
 
 export function omitStoryEpicFields(
@@ -190,6 +209,7 @@ export async function buildIssuePatchBody(
     fields.milestoneId
   );
   if (milestone != null) body.milestone = milestone;
+  await applyIssueMetadataToBody(body, projectId, fields);
   if (Object.keys(body).length === 0) {
     throw new TaigaError("Provide at least one field to update.");
   }

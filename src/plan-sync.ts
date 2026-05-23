@@ -116,7 +116,40 @@ function taskSubject(row: PlanCsvRow): string {
 }
 
 function descriptionWithMarker(row: PlanCsvRow): string {
-  return `${row.title}\n\n${THREAD_MARKER(row.thread_id)}`;
+  const specByModule: Record<string, string> = {
+    INF: "docs-merged/06-implementation-architecture-and-requirements.md (foundation INF)",
+    M01: "docs-merged/07-modules-m01-m22-specifications.md#m01",
+    M05: "docs-merged/07-modules-m01-m22-specifications.md#m05",
+    M08: "docs-merged/07-modules-m01-m22-specifications.md#m08",
+    M09: "docs-merged/07-modules-m01-m22-specifications.md#m09",
+    M19: "docs-merged/07-modules-m01-m22-specifications.md#m19",
+    M21: "docs-merged/07-modules-m01-m22-specifications.md#m21"
+  };
+  const spec = specByModule[row.module] ?? "docs-merged/07-modules-m01-m22-specifications.md";
+  const blocked = row.blocked_by?.trim();
+  const gate = row.gate?.trim();
+  const est = row.estimate_h?.trim();
+  return `### Plan IDs
+- **thread_id:** ${row.thread_id}
+- **hierarchy_id:** ${row.hierarchy_id}
+- **module:** ${row.module}
+- **subphase:** ${row.subphase}
+${gate ? `- **gate:** ${gate}\n` : ""}${blocked ? `- **blocked_by:** ${blocked}\n` : ""}${est ? `- **estimate_h:** ${est}\n` : ""}
+### Spec
+- **Authority:** ${spec}
+- **MVP scope:** docs-merged/06-implementation-architecture-and-requirements.md
+
+### Done when
+- [ ] Implementation merged in \`platform/\`
+- [ ] \`pnpm lint && pnpm test && pnpm build\` pass
+- [ ] plan/L5/tasks.csv row marked \`verified\`
+- [ ] Taiga task closed with PR link in comment
+
+### Links
+- **Code:** platform/
+- **Taiga plan:** plan/L5/tasks.csv
+
+${THREAD_MARKER(row.thread_id)}`;
 }
 
 function storyCreateOpts(

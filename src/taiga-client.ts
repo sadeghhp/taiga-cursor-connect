@@ -131,6 +131,9 @@ export function trimProjectDetail(p: TaigaProject): ProjectDetailSummary {
     is_epics_activated: p.is_epics_activated ?? false,
     is_issues_activated: p.is_issues_activated ?? false,
     is_wiki_activated: p.is_wiki_activated ?? false,
+    is_kanban_activated: p.is_kanban_activated ?? false,
+    is_backlog_activated: p.is_backlog_activated ?? false,
+    is_private: p.is_private ?? false,
     total_milestones: p.total_milestones ?? null,
     total_story_points: p.total_story_points ?? null
   };
@@ -1099,3 +1102,54 @@ export async function archiveEpic(input: EpicRefInput): Promise<TaigaEpic> {
 export async function archiveIssue(input: IssueRefInput): Promise<TaigaIssue> {
   return updateIssue(input, { isClosed: true });
 }
+
+export {
+  listProjectTemplates,
+  createProject,
+  updateProject,
+  duplicateProject,
+  deleteProject
+} from "./projects.js";
+export type {
+  CreateProjectInput,
+  UpdateProjectInput,
+  DuplicateProjectInput
+} from "./projects.js";
+
+export {
+  listIssueTypes,
+  listPriorities,
+  listSeverities,
+  listRoles,
+  getMilestone,
+  getMilestoneById
+} from "./metadata.js";
+
+export { inviteMember } from "./memberships.js";
+export type { InviteMemberInput } from "./memberships.js";
+
+export {
+  listProjectTags,
+  createProjectTag,
+  editProjectTag,
+  deleteProjectTag,
+  getProjectStats,
+  getProjectIssueStats
+} from "./tags.js";
+
+export {
+  listWikiPages,
+  getWikiPage,
+  createWikiPage,
+  updateWikiPage,
+  deleteWikiPage
+} from "./wiki.js";
+
+export {
+  listWebhooks,
+  createWebhook,
+  updateWebhook,
+  deleteWebhook,
+  testWebhook
+} from "./webhooks.js";
+export type { CreateWebhookInput, UpdateWebhookInput } from "./webhooks.js";

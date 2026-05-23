@@ -1,6 +1,6 @@
 {
   "name": "taiga-cursor-connect",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "MCP server connecting Cursor to Taiga",
   "type": "module",
   "scripts": {

@@ -5,6 +5,54 @@ import { z } from "zod";
 import { formatTaigaError } from "./errors.js";
 import { bulkSyncTasksCsv } from "./plan-sync.js";
 import {
+  listAttachments,
+  uploadAttachment,
+  deleteAttachment
+} from "./attachments.js";
+import {
+  listCustomAttributes,
+  getCustomAttributeValues,
+  setCustomAttributeValues
+} from "./custom-attributes.js";
+import { inviteMember } from "./memberships.js";
+import {
+  getMilestone,
+  getMilestoneById,
+  listIssueTypes,
+  listPriorities,
+  listRoles,
+  listSeverities
+} from "./metadata.js";
+import {
+  createProject,
+  deleteProject,
+  duplicateProject,
+  listProjectTemplates,
+  updateProject
+} from "./projects.js";
+import {
+  createProjectTag,
+  deleteProjectTag,
+  editProjectTag,
+  getProjectIssueStats,
+  getProjectStats,
+  listProjectTags
+} from "./tags.js";
+import {
+  createWebhook,
+  deleteWebhook,
+  listWebhooks,
+  testWebhook,
+  updateWebhook
+} from "./webhooks.js";
+import {
+  createWikiPage,
+  deleteWikiPage,
+  getWikiPage,
+  listWikiPages,
+  updateWikiPage
+} from "./wiki.js";
+import {
   addEpicComment,
   addIssueComment,
   addStoryComment,
@@ -134,6 +182,12 @@ function pickCommonUpdate(args: {
   dueDate?: string;
   estimateHours?: number;
   userStoryId?: number;
+  typeName?: string;
+  typeId?: number;
+  priorityName?: string;
+  priorityId?: number;
+  severityName?: string;
+  severityId?: number;
 }): StoryUpdateFields & TaskUpdateFields & IssueUpdateFields & EpicUpdateFields {
   return {
     statusName: args.statusName,
@@ -152,7 +206,13 @@ function pickCommonUpdate(args: {
     unlinkEpic: args.unlinkEpic,
     dueDate: args.dueDate,
     estimateHours: args.estimateHours,
-    userStoryId: args.userStoryId
+    userStoryId: args.userStoryId,
+    typeName: args.typeName,
+    typeId: args.typeId,
+    priorityName: args.priorityName,
+    priorityId: args.priorityId,
+    severityName: args.severityName,
+    severityId: args.severityId
   };
 }
 
@@ -165,6 +225,12 @@ function pickCreateOptions(args: {
   tags?: string;
   dueDate?: string;
   estimateHours?: number;
+  typeName?: string;
+  typeId?: number;
+  priorityName?: string;
+  priorityId?: number;
+  severityName?: string;
+  severityId?: number;
 }): CreateOptionalFields | undefined {
   const opts: CreateOptionalFields = {
     statusName: args.statusName,
@@ -174,7 +240,13 @@ function pickCreateOptions(args: {
     milestoneId: args.milestoneId,
     tags: parseTagsParam(args.tags),
     dueDate: args.dueDate,
-    estimateHours: args.estimateHours
+    estimateHours: args.estimateHours,
+    typeName: args.typeName,
+    typeId: args.typeId,
+    priorityName: args.priorityName,
+    priorityId: args.priorityId,
+    severityName: args.severityName,
+    severityId: args.severityId
   };
   const has =
     opts.statusName != null ||
@@ -184,7 +256,13 @@ function pickCreateOptions(args: {
     opts.milestoneId != null ||
     (opts.tags != null && opts.tags.length > 0) ||
     opts.dueDate != null ||
-    opts.estimateHours != null;
+    opts.estimateHours != null ||
+    opts.typeName != null ||
+    opts.typeId != null ||
+    opts.priorityName != null ||
+    opts.priorityId != null ||
+    opts.severityName != null ||
+    opts.severityId != null;
   return has ? opts : undefined;
 }
 
@@ -192,9 +270,34 @@ const statusEntityTypeSchema = z
   .enum(["user_story", "task", "issue", "epic"])
   .describe("Entity type for status list");
 
+const storyRefOnly = {
+  storyId: storyRefFields.storyId,
+  storyRef: storyRefFields.storyRef
+};
+const taskRefOnly = {
+  taskId: taskRefFields.taskId,
+  taskRef: taskRefFields.taskRef
+};
+const issueRefOnly = {
+  issueId: issueRefFields.issueId,
+  issueRef: issueRefFields.issueRef
+};
+const epicRefOnly = {
+  epicId: epicRefFields.epicId,
+  epicRef: epicRefFields.epicRef
+};
+
+const customAttributeEntitySchema = z
+  .enum(["user_story", "task", "issue", "epic"])
+  .describe("Entity type for custom attributes");
+
+const attachmentEntitySchema = z
+  .enum(["user_story", "task", "issue", "epic", "wiki"])
+  .describe("Entity type for attachments");
+
 const server = new McpServer({
   name: "taiga-mcp",
-  version: "0.5.0"
+  version: "0.6.0"
 });
 
 server.tool("taiga_list_projects", {}, async () => {
@@ -217,6 +320,113 @@ server.tool(
   async ({ projectSlug }) => {
     try {
       return jsonResult(await getProjectDetail(projectSlug));
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+// --- Project lifecycle ---
+
+server.tool("taiga_list_project_templates", {}, async () => {
+  try {
+    return jsonResult(await listProjectTemplates());
+  } catch (err) {
+    return toolError(formatTaigaError(err));
+  }
+});
+
+server.tool(
+  "taiga_create_project",
+  {
+    name: z.string().describe("Project display name"),
+    description: z.string().describe("Project description"),
+    templateId: z.number().optional().describe("Project template id from taiga_list_project_templates"),
+    isPrivate: z.boolean().optional().describe("Private project (default false)"),
+    isEpicsActivated: z.boolean().optional(),
+    isIssuesActivated: z.boolean().optional(),
+    isWikiActivated: z.boolean().optional(),
+    isKanbanActivated: z.boolean().optional(),
+    isBacklogActivated: z.boolean().optional()
+  },
+  async (args) => {
+    try {
+      return jsonResult(
+        await createProject({
+          name: args.name,
+          description: args.description,
+          templateId: args.templateId,
+          isPrivate: args.isPrivate,
+          isEpicsActivated: args.isEpicsActivated,
+          isIssuesActivated: args.isIssuesActivated,
+          isWikiActivated: args.isWikiActivated,
+          isKanbanActivated: args.isKanbanActivated,
+          isBacklogActivated: args.isBacklogActivated
+        })
+      );
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_update_project",
+  {
+    projectSlug: z.string(),
+    name: z.string().optional(),
+    description: z.string().optional(),
+    isEpicsActivated: z.boolean().optional(),
+    isIssuesActivated: z.boolean().optional(),
+    isWikiActivated: z.boolean().optional(),
+    isKanbanActivated: z.boolean().optional(),
+    isBacklogActivated: z.boolean().optional(),
+    isPrivate: z.boolean().optional()
+  },
+  async (args) => {
+    try {
+      const { projectSlug, ...fields } = args;
+      return jsonResult(await updateProject(projectSlug, fields));
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_duplicate_project",
+  {
+    projectSlug: z.string().describe("Source project slug to clone"),
+    name: z.string(),
+    description: z.string(),
+    isPrivate: z.boolean().optional()
+  },
+  async (args) => {
+    try {
+      return jsonResult(
+        await duplicateProject(args.projectSlug, {
+          name: args.name,
+          description: args.description,
+          isPrivate: args.isPrivate
+        })
+      );
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_delete_project",
+  {
+    projectSlug: z.string(),
+    confirm: z.literal(true).describe("Must be true to delete project")
+  },
+  async (args) => {
+    try {
+      if (args.confirm !== true) return toolError("Set confirm=true to delete.");
+      await deleteProject(args.projectSlug);
+      return toolText(`Deleted project ${args.projectSlug}`);
     } catch (err) {
       return toolError(formatTaigaError(err));
     }
@@ -367,6 +577,97 @@ server.tool(
   async ({ projectSlug }) => {
     try {
       return jsonResult(await listPoints(projectSlug));
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+// --- Issue metadata and team ---
+
+server.tool(
+  "taiga_list_issue_types",
+  { projectSlug: z.string() },
+  async ({ projectSlug }) => {
+    try {
+      return jsonResult(await listIssueTypes(projectSlug));
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_list_priorities",
+  { projectSlug: z.string() },
+  async ({ projectSlug }) => {
+    try {
+      return jsonResult(await listPriorities(projectSlug));
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_list_severities",
+  { projectSlug: z.string() },
+  async ({ projectSlug }) => {
+    try {
+      return jsonResult(await listSeverities(projectSlug));
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_get_milestone",
+  { ...milestoneRefFields },
+  async (args) => {
+    try {
+      assertMilestoneRefValid(args);
+      if (args.milestoneId != null) {
+        return jsonResult(await getMilestoneById(args.milestoneId));
+      }
+      return jsonResult(
+        await getMilestone(args.projectSlug!, args.milestoneSlug!)
+      );
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_list_roles",
+  { projectSlug: z.string() },
+  async ({ projectSlug }) => {
+    try {
+      return jsonResult(await listRoles(projectSlug));
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_invite_member",
+  {
+    projectSlug: z.string(),
+    username: z.string().describe("Taiga username or email"),
+    roleId: z.number().optional(),
+    roleName: z.string().optional().describe("Role label e.g. Product Owner")
+  },
+  async (args) => {
+    try {
+      return jsonResult(
+        await inviteMember(args.projectSlug, {
+          username: args.username,
+          roleId: args.roleId,
+          roleName: args.roleName
+        })
+      );
     } catch (err) {
       return toolError(formatTaigaError(err));
     }
@@ -1082,6 +1383,437 @@ server.tool(
       const issue = await resolveIssue(args);
       await deleteIssue(issue.id);
       return toolText(`Deleted issue #${issue.ref}`);
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+// --- Project tags and stats ---
+
+server.tool(
+  "taiga_list_project_tags",
+  { projectSlug: z.string() },
+  async ({ projectSlug }) => {
+    try {
+      return jsonResult(await listProjectTags(projectSlug));
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_create_project_tag",
+  {
+    projectSlug: z.string(),
+    tag: z.string(),
+    color: z.string().optional().describe("HEX color e.g. #FF0000")
+  },
+  async (args) => {
+    try {
+      return jsonResult(
+        await createProjectTag(args.projectSlug, args.tag, args.color)
+      );
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_edit_project_tag",
+  {
+    projectSlug: z.string(),
+    fromTag: z.string(),
+    toTag: z.string(),
+    color: z.string().optional()
+  },
+  async (args) => {
+    try {
+      return jsonResult(
+        await editProjectTag(args.projectSlug, args.fromTag, args.toTag, args.color)
+      );
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_delete_project_tag",
+  { projectSlug: z.string(), tag: z.string() },
+  async ({ projectSlug, tag }) => {
+    try {
+      await deleteProjectTag(projectSlug, tag);
+      return toolText(`Deleted tag ${tag}`);
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_get_project_stats",
+  { projectSlug: z.string() },
+  async ({ projectSlug }) => {
+    try {
+      return jsonResult(await getProjectStats(projectSlug));
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_get_project_issue_stats",
+  { projectSlug: z.string() },
+  async ({ projectSlug }) => {
+    try {
+      return jsonResult(await getProjectIssueStats(projectSlug));
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+// --- Custom attributes ---
+
+server.tool(
+  "taiga_list_custom_attributes",
+  {
+    projectSlug: z.string(),
+    entityType: customAttributeEntitySchema
+  },
+  async ({ projectSlug, entityType }) => {
+    try {
+      return jsonResult(await listCustomAttributes(projectSlug, entityType));
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_get_custom_attribute_values",
+  {
+    projectSlug: z.string(),
+    entityType: customAttributeEntitySchema,
+    ...storyRefOnly,
+    ...taskRefOnly,
+    ...issueRefOnly,
+    ...epicRefOnly
+  },
+  async (args) => {
+    try {
+      return jsonResult(
+        await getCustomAttributeValues(args.projectSlug, args.entityType, {
+          projectSlug: args.projectSlug,
+          storyId: args.storyId,
+          storyRef: args.storyRef,
+          taskId: args.taskId,
+          taskRef: args.taskRef,
+          issueId: args.issueId,
+          issueRef: args.issueRef,
+          epicId: args.epicId,
+          epicRef: args.epicRef
+        })
+      );
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_set_custom_attribute_values",
+  {
+    projectSlug: z.string(),
+    entityType: customAttributeEntitySchema,
+    values: z.string().describe("JSON object of attribute id/name to value"),
+    ...storyRefOnly,
+    ...taskRefOnly,
+    ...issueRefOnly,
+    ...epicRefOnly
+  },
+  async (args) => {
+    try {
+      const values = parseJsonParam(args.values, z.record(z.unknown()));
+      return jsonResult(
+        await setCustomAttributeValues(
+          args.projectSlug,
+          args.entityType,
+          {
+            projectSlug: args.projectSlug,
+            storyId: args.storyId,
+            storyRef: args.storyRef,
+            taskId: args.taskId,
+            taskRef: args.taskRef,
+            issueId: args.issueId,
+            issueRef: args.issueRef,
+            epicId: args.epicId,
+            epicRef: args.epicRef
+          },
+          values
+        )
+      );
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+// --- Wiki ---
+
+server.tool(
+  "taiga_list_wiki_pages",
+  { projectSlug: z.string() },
+  async ({ projectSlug }) => {
+    try {
+      return jsonResult(await listWikiPages(projectSlug));
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_get_wiki_page",
+  {
+    projectSlug: z.string(),
+    wikiSlug: z.string().describe("Wiki page slug")
+  },
+  async ({ projectSlug, wikiSlug }) => {
+    try {
+      return jsonResult(await getWikiPage(projectSlug, wikiSlug));
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_create_wiki_page",
+  {
+    projectSlug: z.string(),
+    subject: z.string(),
+    content: z.string().optional()
+  },
+  async (args) => {
+    try {
+      return jsonResult(
+        await createWikiPage(args.projectSlug, args.subject, args.content)
+      );
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_update_wiki_page",
+  {
+    projectSlug: z.string(),
+    wikiSlug: z.string(),
+    subject: z.string().optional(),
+    content: z.string().optional()
+  },
+  async (args) => {
+    try {
+      return jsonResult(
+        await updateWikiPage(args.projectSlug, args.wikiSlug, {
+          subject: args.subject,
+          content: args.content
+        })
+      );
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_delete_wiki_page",
+  { projectSlug: z.string(), wikiSlug: z.string() },
+  async ({ projectSlug, wikiSlug }) => {
+    try {
+      await deleteWikiPage(projectSlug, wikiSlug);
+      return toolText(`Deleted wiki page ${wikiSlug}`);
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+// --- Attachments ---
+
+server.tool(
+  "taiga_list_attachments",
+  {
+    projectSlug: z.string(),
+    entityType: attachmentEntitySchema,
+    ...storyRefOnly,
+    ...taskRefOnly,
+    ...issueRefOnly,
+    ...epicRefOnly,
+    wikiId: z.number().optional().describe("Wiki page id (wiki entityType only)")
+  },
+  async (args) => {
+    try {
+      return jsonResult(
+        await listAttachments(args.projectSlug, args.entityType, {
+          projectSlug: args.projectSlug,
+          storyId: args.storyId,
+          storyRef: args.storyRef,
+          taskId: args.taskId,
+          taskRef: args.taskRef,
+          issueId: args.issueId,
+          issueRef: args.issueRef,
+          epicId: args.epicId,
+          epicRef: args.epicRef,
+          wikiId: args.wikiId
+        })
+      );
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_upload_attachment",
+  {
+    projectSlug: z.string(),
+    entityType: attachmentEntitySchema,
+    filePath: z.string().describe("Absolute path to file on host"),
+    ...storyRefOnly,
+    ...taskRefOnly,
+    ...issueRefOnly,
+    ...epicRefOnly,
+    wikiId: z.number().optional()
+  },
+  async (args) => {
+    try {
+      return jsonResult(
+        await uploadAttachment(
+          args.projectSlug,
+          args.entityType,
+          args.filePath,
+          {
+            projectSlug: args.projectSlug,
+            storyId: args.storyId,
+            storyRef: args.storyRef,
+            taskId: args.taskId,
+            taskRef: args.taskRef,
+            issueId: args.issueId,
+            issueRef: args.issueRef,
+            epicId: args.epicId,
+            epicRef: args.epicRef,
+            wikiId: args.wikiId
+          }
+        )
+      );
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_delete_attachment",
+  {
+    entityType: attachmentEntitySchema,
+    attachmentId: z.number()
+  },
+  async ({ entityType, attachmentId }) => {
+    try {
+      await deleteAttachment(entityType, attachmentId);
+      return toolText(`Deleted attachment ${attachmentId}`);
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+// --- Webhooks ---
+
+server.tool(
+  "taiga_list_webhooks",
+  { projectSlug: z.string() },
+  async ({ projectSlug }) => {
+    try {
+      return jsonResult(await listWebhooks(projectSlug));
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_create_webhook",
+  {
+    projectSlug: z.string(),
+    name: z.string(),
+    url: z.string().describe("Webhook callback URL"),
+    key: z.string().optional().describe("Optional signing key")
+  },
+  async (args) => {
+    try {
+      return jsonResult(
+        await createWebhook(args.projectSlug, {
+          name: args.name,
+          url: args.url,
+          key: args.key
+        })
+      );
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_update_webhook",
+  {
+    webhookId: z.number(),
+    name: z.string().optional(),
+    url: z.string().optional(),
+    key: z.string().optional(),
+    active: z.boolean().optional()
+  },
+  async (args) => {
+    try {
+      const { webhookId, ...fields } = args;
+      return jsonResult(await updateWebhook(webhookId, fields));
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_delete_webhook",
+  {
+    webhookId: z.number(),
+    confirm: z.literal(true)
+  },
+  async (args) => {
+    try {
+      if (args.confirm !== true) return toolError("Set confirm=true to delete.");
+      await deleteWebhook(args.webhookId);
+      return toolText(`Deleted webhook ${args.webhookId}`);
+    } catch (err) {
+      return toolError(formatTaigaError(err));
+    }
+  }
+);
+
+server.tool(
+  "taiga_test_webhook",
+  { webhookId: z.number() },
+  async ({ webhookId }) => {
+    try {
+      return jsonResult(await testWebhook(webhookId));
     } catch (err) {
       return toolError(formatTaigaError(err));
     }

@@ -9,7 +9,7 @@
 | **Protocol** | [Model Context Protocol](https://modelcontextprotocol.io) (stdio) |
 | **Runtime** | Node 22 (Docker image or local `tsx`) |
 | **Taiga** | Self-hosted or cloud; default `http://localhost:9000` |
-| **Version** | 0.5.0 — **46 tools** |
+| **Version** | 0.6.0 — **79 tools** |
 
 ## Why use this
 
@@ -73,7 +73,7 @@ Replace `YOUR_AUTH_TOKEN_HERE`. On macOS, `host.docker.internal` often works wit
 
 - [Docker](https://docs.docker.com/get-docker/)
 - Taiga reachable at `http://localhost:9000` (or change URLs below)
-- At least one Taiga **project** and **user story** (create them in the Taiga UI if needed)
+- A Taiga auth token with permission to create projects (or an existing project)
 
 ## Setup
 
@@ -114,6 +114,13 @@ Add the [Quick start](#quick-start) JSON to Cursor. After saving, restart Cursor
 
 ## Example prompts
 
+**Bootstrap a new project**
+
+```text
+Use taiga_list_project_templates, then taiga_create_project with templateId, name, description,
+isEpicsActivated true, isIssuesActivated true. Write .cursor/taiga-project.md with the returned slug.
+```
+
 **Discover and fetch**
 
 ```text
@@ -153,23 +160,30 @@ See [docs/bulk-sync-example.md](docs/bulk-sync-example.md) for CSV shape and ide
 
 ## MCP tools reference
 
-### Discovery (11)
+### Discovery (18)
 
 | Tool | Description |
 |------|-------------|
 | `taiga_list_projects` | List projects (id, slug, name) |
-| `taiga_get_project` | Project detail + modules (epics, issues, wiki) |
+| `taiga_get_project` | Project detail + module flags |
+| `taiga_list_project_templates` | Scrum/Kanban templates for `taiga_create_project` |
 | `taiga_list_user_stories` | Stories; filters: `milestoneId`, `statusName`, `tags`, `epicId`, `page` |
 | `taiga_list_tasks` | Tasks; filters + `userStoryId` |
 | `taiga_list_issues` | Issues; filters + pagination |
 | `taiga_list_epics` | Epics; filters + pagination |
 | `taiga_list_milestones` | Sprints / milestones |
+| `taiga_get_milestone` | Single milestone by slug or id |
 | `taiga_list_statuses` | Statuses for `user_story`, `task`, `issue`, `epic` |
 | `taiga_list_members` | Members (`user_id` for assignee) |
+| `taiga_list_roles` | Project roles (for invites) |
 | `taiga_list_points` | Story point scale |
+| `taiga_list_issue_types` | Issue types (Bug, Question, …) |
+| `taiga_list_priorities` | Issue priorities |
+| `taiga_list_severities` | Issue severities |
+| `taiga_list_project_tags` | Project tag colors |
 | `taiga_search` | Full-text search in a project |
 
-### Read (8)
+### Read (9)
 
 | Tool | Description |
 |------|-------------|
@@ -178,24 +192,40 @@ See [docs/bulk-sync-example.md](docs/bulk-sync-example.md) for CSV shape and ide
 | `taiga_get_task` / `taiga_get_task_history` | Task detail / history |
 | `taiga_get_issue` / `taiga_get_issue_history` | Issue detail / history |
 | `taiga_get_epic` | Epic detail |
+| `taiga_get_project_stats` / `taiga_get_project_issue_stats` | Trimmed project metrics |
+| `taiga_get_wiki_page` | Wiki page by slug |
+| `taiga_list_custom_attributes` | Custom attribute definitions per entity type |
+| `taiga_get_custom_attribute_values` | Values on a story/task/issue/epic |
 
-### Create (5)
+### Create (11)
 
 | Tool | Description |
 |------|-------------|
+| `taiga_create_project` | New project from template + module flags |
+| `taiga_duplicate_project` | Clone project structure |
 | `taiga_create_milestone` | Sprint (`slug`, dates) |
 | `taiga_create_epic` | Epic + tags, status, milestone |
 | `taiga_create_story` | Story + `epicId`, `tags`, `dueDate`, `estimateHours` |
 | `taiga_create_task` | Task + parent story, tags |
-| `taiga_create_issue` | Issue |
+| `taiga_create_issue` | Issue + optional type/priority/severity by name or id |
+| `taiga_create_project_tag` | Tag with optional HEX color |
+| `taiga_create_wiki_page` | Wiki page (requires wiki module) |
+| `taiga_create_webhook` | Outbound webhook |
+| `taiga_invite_member` | Invite user by username/email + role |
 
-### Update, link, and order (11)
+### Update, link, and order (14)
 
 | Tool | Description |
 |------|-------------|
+| `taiga_update_project` | Name, description, module flags, privacy |
 | `taiga_update_milestone` | Name, dates, `closed` (gates) |
 | `taiga_update_story` / `task` / `issue` / `epic` | Status, tags, blocked, `unassign`, milestone |
+| `taiga_update_issue` | Also `typeName`/`priorityName`/`severityName` (or ids) |
 | `taiga_update_task` | Also `userStoryId` to reparent |
+| `taiga_edit_project_tag` | Rename/recolor tag |
+| `taiga_set_custom_attribute_values` | Patch entity custom attribute values |
+| `taiga_update_wiki_page` | Wiki subject/content |
+| `taiga_update_webhook` | Webhook name, url, active |
 | `taiga_link_story_to_epic` / `taiga_unlink_story_from_epic` | Epic relations |
 | `taiga_update_story_backlog_order` | JSON `[{storyRef, order}]` |
 | `taiga_update_story_sprint_order` | Sprint board order |
@@ -207,13 +237,37 @@ See [docs/bulk-sync-example.md](docs/bulk-sync-example.md) for CSV shape and ide
 |------|-------------|
 | `taiga_comment_on_story` / `task` / `issue` / `epic` | Add comment |
 
-### Bulk, archive, delete (7)
+### Attachments (3)
+
+| Tool | Description |
+|------|-------------|
+| `taiga_list_attachments` | List attachments on story/task/issue/epic/wiki |
+| `taiga_upload_attachment` | Upload file from host `filePath` (multipart) |
+| `taiga_delete_attachment` | Delete by attachment id |
+
+### Bulk, archive, delete (11)
 
 | Tool | Description |
 |------|-------------|
 | `taiga_bulk_sync_tasks_csv` | Sync `plan/L5/tasks.csv`; `dryRun`, idempotency |
 | `taiga_archive_*` | Soft-close story / task / epic / issue |
-| `taiga_delete_*` | Hard delete (`confirm: true`) |
+| `taiga_delete_*` | Hard delete entity (`confirm: true`) |
+| `taiga_delete_project` | Hard delete project (`confirm: true`) |
+| `taiga_delete_project_tag` | Remove project tag |
+| `taiga_delete_wiki_page` | Delete wiki page |
+| `taiga_delete_webhook` | Delete webhook (`confirm: true`) |
+
+### Webhooks (1)
+
+| Tool | Description |
+|------|-------------|
+| `taiga_test_webhook` | Send test payload to webhook URL |
+
+### Wiki list (1)
+
+| Tool | Description |
+|------|-------------|
+| `taiga_list_wiki_pages` | List wiki pages in project |
 
 ---
 
@@ -348,7 +402,7 @@ CI runs `npm test` on push and pull request (Node 22).
 | Story not found | Confirm project **slug** (URL segment) and story **ref** |
 | Status not found | Use exact Taiga label for `statusName`, or pass `statusId` |
 | Cannot reach Taiga from container | Taiga on host port 9000; test: `docker run --rm --add-host=host.docker.internal:host-gateway curlimages/curl -s http://host.docker.internal:9000/api/v1/` |
-| No projects | Create a project in Taiga UI first |
+| No projects | Use `taiga_create_project` or create in Taiga UI |
 | Missing or stale tools | `npm run docker:build`, restart Cursor (reloads MCP tool list) |
 
 ---
@@ -357,6 +411,7 @@ CI runs `npm test` on push and pull request (Node 22).
 
 - **`TAIGA_TOKEN`** grants API access within your Taiga permissions. Keep it in env vars or MCP config, not in git.
 - **`taiga_bulk_sync_tasks_csv`** reads `csvPath` from the host (or paths visible in the container). Only pass trusted paths; a client with MCP access could trigger reads the process can open.
+- **`taiga_upload_attachment`** reads `filePath` from the host the same way. Only pass trusted paths.
 - Trust boundary: your machine, Docker mounts, and who can invoke MCP tools in Cursor.
 
 ---
@@ -373,10 +428,18 @@ Cursor IDE  --stdio-->  docker run -i taiga-mcp  --HTTP-->  Taiga :9000 (host)
 
 ```text
 src/
-  server.ts       MCP tool definitions
-  taiga-client.ts   Taiga REST calls
-  schemas.ts      Input validation
-  plan-sync.ts    CSV bulk sync
+  server.ts           MCP tool definitions
+  taiga-client.ts   Core Taiga REST calls
+  projects.ts       Project lifecycle (create, update, duplicate)
+  metadata.ts       Issue types, priorities, severities, roles
+  memberships.ts    Member invites
+  tags.ts           Project tags and stats
+  custom-attributes.ts  Custom attribute defs and values
+  wiki.ts           Wiki CRUD
+  attachments.ts    File attachments (multipart)
+  webhooks.ts       Webhook CRUD and test
+  schemas.ts        Input validation
+  plan-sync.ts      CSV bulk sync
   patch-builders.ts, resolvers.ts, trimmers.ts
 ```
 

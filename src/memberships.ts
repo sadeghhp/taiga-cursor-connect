@@ -1,0 +1,59 @@
+import { getClient, wrapAxiosError } from "./http/client.js";
+import { resolveRoleId } from "./metadata.js";
+import type { MembershipSummary, TaigaProject } from "./types.js";
+
+async function getProjectBySlug(slug: string): Promise<TaigaProject> {
+  try {
+    const res = await getClient().get<TaigaProject>("/projects/by_slug", {
+      params: { slug }
+    });
+    return res.data;
+  } catch (e) {
+    throw wrapAxiosError(e, { projectSlug: slug });
+  }
+}
+
+export interface InviteMemberInput {
+  username: string;
+  roleId?: number;
+  roleName?: string;
+}
+
+export async function inviteMember(
+  projectSlug: string,
+  input: InviteMemberInput
+): Promise<MembershipSummary> {
+  const project = await getProjectBySlug(projectSlug);
+  let roleId = input.roleId;
+  if (roleId == null && input.roleName != null) {
+    roleId = await resolveRoleId(project.id, input.roleName);
+  }
+  if (roleId == null) {
+    throw wrapAxiosError(new Error("Provide roleId or roleName."), { projectSlug });
+  }
+  try {
+    const res = await getClient().post<{
+      id: number;
+      user: number;
+      role: number;
+      role_name?: string;
+      user_email?: string;
+      user_full_name?: string;
+    }>("/memberships", {
+      project: project.id,
+      role: roleId,
+      username: input.username
+    });
+    const m = res.data;
+    return {
+      id: m.id,
+      user_id: m.user,
+      role_id: m.role,
+      role_name: m.role_name ?? null,
+      email: m.user_email ?? null,
+      full_name: m.user_full_name ?? null
+    };
+  } catch (e) {
+    throw wrapAxiosError(e, { projectSlug });
+  }
+}

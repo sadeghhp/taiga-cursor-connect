@@ -106,7 +106,13 @@ export const taskUpdateFieldsShape = {
 export const issueUpdateFieldsShape = {
   ...commonUpdateFieldsShape,
   milestoneSlug: updateFieldsShape.milestoneSlug,
-  milestoneId: updateFieldsShape.milestoneId
+  milestoneId: updateFieldsShape.milestoneId,
+  typeName: z.string().optional().describe("Issue type label e.g. Bug"),
+  typeId: z.number().optional().describe("Issue type internal id"),
+  priorityName: z.string().optional().describe("Priority label e.g. High"),
+  priorityId: z.number().optional().describe("Priority internal id"),
+  severityName: z.string().optional().describe("Severity label e.g. Minor"),
+  severityId: z.number().optional().describe("Severity internal id")
 };
 
 export const epicUpdateFieldsShape = {
@@ -127,7 +133,13 @@ export const createOptionalFieldsShape = {
   estimateHours: z
     .number()
     .optional()
-    .describe("Map estimate_h to nearest story point")
+    .describe("Map estimate_h to nearest story point"),
+  typeName: z.string().optional().describe("Issue type label (issues only)"),
+  typeId: z.number().optional().describe("Issue type id (issues only)"),
+  priorityName: z.string().optional().describe("Priority label (issues only)"),
+  priorityId: z.number().optional().describe("Priority id (issues only)"),
+  severityName: z.string().optional().describe("Severity label (issues only)"),
+  severityId: z.number().optional().describe("Severity id (issues only)")
 };
 
 export const createStoryFieldsShape = {
@@ -227,6 +239,12 @@ type UpdateFieldCheck = {
   dueDate?: string;
   estimateHours?: number;
   userStoryId?: number;
+  typeName?: string;
+  typeId?: number;
+  priorityName?: string;
+  priorityId?: number;
+  severityName?: string;
+  severityId?: number;
 };
 
 function hasCommonUpdate(d: UpdateFieldCheck): boolean {
@@ -265,7 +283,17 @@ export function assertTaskUpdateValid(d: UpdateFieldCheck): void {
 }
 
 export function assertIssueUpdateValid(d: UpdateFieldCheck): void {
-  if (!hasCommonUpdate(d) && d.milestoneSlug == null && d.milestoneId == null) {
+  if (
+    !hasCommonUpdate(d) &&
+    d.milestoneSlug == null &&
+    d.milestoneId == null &&
+    d.typeName == null &&
+    d.typeId == null &&
+    d.priorityName == null &&
+    d.priorityId == null &&
+    d.severityName == null &&
+    d.severityId == null
+  ) {
     throw new SchemaValidationError(updateRequiredMessage);
   }
 }

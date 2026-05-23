@@ -12,6 +12,9 @@ export interface TaigaProject {
   is_epics_activated?: boolean;
   is_issues_activated?: boolean;
   is_wiki_activated?: boolean;
+  is_kanban_activated?: boolean;
+  is_backlog_activated?: boolean;
+  is_private?: boolean;
   total_milestones?: number | null;
   total_story_points?: number | null;
 }
@@ -24,8 +27,94 @@ export interface ProjectDetailSummary {
   is_epics_activated: boolean;
   is_issues_activated: boolean;
   is_wiki_activated: boolean;
+  is_kanban_activated: boolean;
+  is_backlog_activated: boolean;
+  is_private: boolean;
   total_milestones: number | null;
   total_story_points: number | null;
+}
+
+export interface ProjectCreateSummary {
+  id: number;
+  slug: string;
+  name: string;
+  description: string | null;
+  is_epics_activated: boolean;
+  is_issues_activated: boolean;
+  is_wiki_activated: boolean;
+  is_kanban_activated: boolean;
+  is_backlog_activated: boolean;
+  is_private: boolean;
+}
+
+export interface ProjectTemplateSummary {
+  id: number;
+  name: string;
+  slug: string;
+  description: string | null;
+  is_epics_activated: boolean;
+  is_issues_activated: boolean;
+  is_wiki_activated: boolean;
+}
+
+export interface IdNameSummary {
+  id: number;
+  name: string;
+}
+
+export interface MembershipSummary {
+  id: number;
+  user_id: number;
+  role_id: number;
+  role_name: string | null;
+  email: string | null;
+  full_name: string | null;
+}
+
+export interface TagColorSummary {
+  tag: string;
+  color: string | null;
+}
+
+export interface ProjectStatsSummary {
+  assigned_points: number;
+  closed_points: number;
+  defined_points: number;
+  milestone_count: number;
+}
+
+export type CustomAttributeEntityType = "user_story" | "task" | "issue" | "epic";
+
+export interface CustomAttributeDefSummary {
+  id: number;
+  name: string;
+  type: string;
+  description: string | null;
+}
+
+export interface WikiPageSummary {
+  id: number;
+  slug: string;
+  subject: string;
+  content: string | null;
+  version: number | null;
+}
+
+export type AttachmentEntityType = "user_story" | "task" | "issue" | "epic" | "wiki";
+
+export interface AttachmentSummary {
+  id: number;
+  name: string | null;
+  size: number | null;
+  url: string | null;
+}
+
+export interface WebhookSummary {
+  id: number;
+  name: string;
+  url: string;
+  active: boolean;
+  project: number;
 }
 
 export interface TaigaEpicRef {

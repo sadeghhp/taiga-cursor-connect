@@ -5,8 +5,8 @@ Bootstrap Taiga structure for Exchange R1 using **only** the `user-taiga` MCP se
 ## Prerequisites
 
 - Taiga running and reachable (`TAIGA_API_URL`, `TAIGA_TOKEN` in MCP config)
-- Docker image `taiga-mcp:0.5.0` (or latest local build)
-- Test project slug (e.g. `mcp-test`) via `TAIGA_PROJECT_SLUG`
+- Docker image `taiga-mcp:0.6.0` (or latest local build)
+- Test project slug (e.g. `mcp-test`) via `TAIGA_PROJECT_SLUG`, or create one with `taiga_create_project`
 
 Rebuild after code changes:
 
@@ -18,6 +18,7 @@ Restart Cursor MCP.
 
 ## Bootstrap sequence
 
+0. **New project (optional)** — `taiga_list_project_templates` → `taiga_create_project` with `templateId`, module flags → record slug in `.cursor/taiga-project.md`
 1. **Discover project** — `taiga_get_project` with `projectSlug`
 2. **Create milestones** — `taiga_create_milestone` for each subphase slug:
    - `P1-A-Data-Identity`, `P1-B-…`, … `P1-E-GoLive`
@@ -57,7 +58,7 @@ Returns per-row `story_ref`, `task_ref`, and `csv_patch` for backfill.
 - **Epic link** — `POST /epics/{id}/related_userstories`; requires `is_epics_activated` on project
 - **CSV path in Docker** — mount workspace into MCP container or use host-accessible path
 - **Points** — `estimate_h` maps to nearest discrete point value, not fractional hours
-- **`create_project`** — not exposed (admin-only on many instances)
+- **Project module flags** — use `taiga_update_project` (`isEpicsActivated`, etc.), not `/projects/{id}/modules` (that endpoint is VCS integration only)
 
 ## Agent prompt example
 

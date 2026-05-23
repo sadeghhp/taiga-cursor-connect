@@ -134,3 +134,30 @@ export function parsePaginationHeaders(
     paginated: h["x-paginated"] === "True" || h["x-paginated"] === "true"
   };
 }
+
+export async function resolveProjectListItem(
+  projectId: number,
+  path: string,
+  name: string,
+  label: string
+): Promise<number> {
+  try {
+    const res = await getClient().get<Array<{ id: number; name: string }>>(path, {
+      params: { project: projectId }
+    });
+    const rows = Array.isArray(res.data) ? res.data : [];
+    const normalized = name.trim().toLowerCase();
+    const matches = rows.filter((s) => s.name.trim().toLowerCase() === normalized);
+    if (matches.length === 0) {
+      throw new TaigaError(`No ${label} named "${name}" in project ${projectId}.`);
+    }
+    if (matches.length > 1) {
+      throw new TaigaError(
+        `Ambiguous ${label} name "${name}" (${matches.length} matches).`
+      );
+    }
+    return matches[0].id;
+  } catch (e) {
+    throw wrapAxiosError(e);
+  }
+}
