@@ -450,6 +450,7 @@ src/
 | Doc | Purpose |
 |-----|---------|
 | [docs/Taiga REST API.md](docs/Taiga%20REST%20API.md) | Taiga API notes used by this server |
+| [docs/mcp-tool-catalog.md](docs/mcp-tool-catalog.md) | Alphabetic index of all 79 MCP tools |
 | [docs/exchange-r1-bootstrap.md](docs/exchange-r1-bootstrap.md) | Milestone/epic/CSV bootstrap sequence |
 | [docs/bulk-sync-example.md](docs/bulk-sync-example.md) | Bulk CSV sync prompts and output shape |
 

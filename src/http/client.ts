@@ -37,6 +37,18 @@ function requireConfig(): void {
   }
 }
 
+/** @internal Base API URL for fetch-based uploads (multipart). */
+export function getApiBaseUrl(): string {
+  requireConfig();
+  return taigaApiUrl();
+}
+
+/** @internal Bearer auth header for fetch-based uploads. */
+export function getAuthHeaders(): Record<string, string> {
+  requireConfig();
+  return { Authorization: `Bearer ${taigaToken()}` };
+}
+
 export function wrapAxiosError(
   err: unknown,
   context?: Record<string, string | number>

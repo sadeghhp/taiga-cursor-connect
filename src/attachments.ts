@@ -1,6 +1,6 @@
 import { openAsBlob } from "node:fs";
 import { basename } from "node:path";
-import { getClient, wrapAxiosError, TaigaError } from "./http/client.js";
+import { getApiBaseUrl, getAuthHeaders, getClient, wrapAxiosError, TaigaError } from "./http/client.js";
 import {
   getProjectBySlug,
   resolveEpic,
@@ -98,19 +98,27 @@ export async function uploadAttachment(
   form.append("object_id", String(objectId));
   form.append("attached_file", blob, basename(filePath));
   try {
-    const client = getClient();
-    const res = await client.post<{
+    const res = await fetch(`${getApiBaseUrl()}${ATTACHMENT_PATH[entityType]}`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: form
+    });
+    if (!res.ok) {
+      const detail = await res.text();
+      throw new TaigaError(
+        `Taiga API error (${res.status}): ${detail}`,
+        res.status,
+        { projectSlug, entityType, filePath }
+      );
+    }
+    const data = (await res.json()) as {
       id: number;
       name?: string;
       size?: number;
       url?: string;
       attached_file?: string;
-    }>(ATTACHMENT_PATH[entityType], form, {
-      headers: {
-        Authorization: client.defaults.headers.common.Authorization as string
-      }
-    });
-    return trimAttachment(res.data);
+    };
+    return trimAttachment(data);
   } catch (e) {
     throw wrapAxiosError(e, { projectSlug, entityType, filePath });
   }

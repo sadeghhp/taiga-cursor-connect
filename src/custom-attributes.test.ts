@@ -33,6 +33,7 @@ describe("setCustomAttributeValues", () => {
 
   it("merges attributes_values with OCC patch", async () => {
     let patchBody: Record<string, unknown> | undefined;
+    let storyFetches = 0;
     const instance = {
       get: mock.fn(async (url: string) => {
         if (url === "/projects/by_slug") {
@@ -42,6 +43,15 @@ describe("setCustomAttributeValues", () => {
           return { data: { id: 10, ref: 1, subject: "S", version: 1, project: 1 } };
         }
         if (url === "/userstories/10") {
+          storyFetches += 1;
+          if (storyFetches > 1) {
+            return {
+              data: {
+                version: 3,
+                attributes_values: { "1": "existing", "2": "new" }
+              }
+            };
+          }
           return {
             data: {
               version: 2,

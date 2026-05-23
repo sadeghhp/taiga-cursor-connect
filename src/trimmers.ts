@@ -83,15 +83,20 @@ export function trimHistory(entries: TaigaHistoryEntry[]): HistoryEntrySummary[]
   return candidates.slice(0, HISTORY_CAP).map((c) => c.entry);
 }
 
+/** Taiga story.points is { roleId: pointDefinitionId }. */
 export function resolvePointsByRole(
   points: Record<string, number> | undefined,
-  defs: TaigaPoint[]
+  defs: TaigaPoint[],
+  roles?: Array<{ id: number; name: string }>
 ): Record<string, number> | null {
   if (!points || Object.keys(points).length === 0) return null;
-  const byId = new Map(defs.map((p) => [String(p.id), p.name]));
+  const pointById = new Map(defs.map((p) => [String(p.id), p]));
+  const roleById = new Map((roles ?? []).map((r) => [String(r.id), r.name]));
   const out: Record<string, number> = {};
-  for (const [id, value] of Object.entries(points)) {
-    out[byId.get(id) ?? `point_${id}`] = value;
+  for (const [roleId, pointId] of Object.entries(points)) {
+    const def = pointById.get(String(pointId));
+    const roleLabel = roleById.get(roleId) ?? `role_${roleId}`;
+    out[roleLabel] = def?.value ?? pointId;
   }
   return out;
 }

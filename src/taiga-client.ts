@@ -61,7 +61,11 @@ import {
   resolveMilestoneId,
   type StatusEntityType
 } from "./resolvers.js";
-import { resolvePointsFromEstimateHours, listPointsForProject } from "./points.js";
+import {
+  resolvePointsFromEstimateHours,
+  listPointsForProject,
+  listRolesForProject
+} from "./points.js";
 import {
   trimEpicDetail,
   trimEpicListItem,
@@ -413,6 +417,9 @@ export async function updateStory(
   input: StoryRefInput,
   fields: StoryUpdateFields
 ): Promise<TaigaUserStory> {
+  if (fields.unlinkEpic === true && fields.epicId == null) {
+    throw new TaigaError("epicId is required when unlinkEpic is true.");
+  }
   const story = await resolveStory(input);
   const projectId = await resolveStoryProjectId(story);
   const patchFields = omitStoryEpicFields({ ...fields });
@@ -782,16 +789,51 @@ export async function addEpicComment(
   );
 }
 
+async function isStoryLinkedToEpic(
+  epicId: number,
+  userStoryId: number
+): Promise<boolean> {
+  try {
+    const res = await getClient().get<Array<{ user_story: number }>>(
+      `/epics/${epicId}/related_userstories`
+    );
+    const rows = Array.isArray(res.data) ? res.data : [];
+    return rows.some((r) => r.user_story === userStoryId);
+  } catch {
+    return false;
+  }
+}
+
+function isDuplicateEpicLinkError(err: unknown): boolean {
+  if (!axios.isAxiosError(err)) return false;
+  const status = err.response?.status;
+  if (status !== 400 && status !== 409) return false;
+  const body = err.response?.data;
+  const detail =
+    typeof body === "object" && body !== null
+      ? String((body as { detail?: string }).detail ?? "").toLowerCase()
+      : "";
+  return (
+    detail.includes("already") ||
+    detail.includes("duplicate") ||
+    detail.includes("exist")
+  );
+}
+
 export async function linkStoryToEpic(
   epicId: number,
   userStoryId: number
 ): Promise<void> {
+  if (await isStoryLinkedToEpic(epicId, userStoryId)) {
+    return;
+  }
   try {
     await getClient().post(`/epics/${epicId}/related_userstories`, {
       epic: epicId,
       user_story: userStoryId
     });
   } catch (e) {
+    if (isDuplicateEpicLinkError(e)) return;
     throw wrapAxiosError(e, { epicId, userStoryId });
   }
 }

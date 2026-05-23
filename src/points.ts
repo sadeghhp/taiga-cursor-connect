@@ -13,6 +13,20 @@ export async function listPointsForProject(projectId: number): Promise<PointSumm
   }
 }
 
+export async function listRolesForProject(
+  projectId: number
+): Promise<Array<{ id: number; name: string }>> {
+  try {
+    const res = await getClient().get<TaigaRole[]>("/roles", {
+      params: { project: projectId }
+    });
+    const roles = Array.isArray(res.data) ? res.data : [];
+    return roles.map((r) => ({ id: r.id, name: r.name }));
+  } catch (e) {
+    throw wrapAxiosError(e);
+  }
+}
+
 async function getComputableRoleId(projectId: number): Promise<number | null> {
   try {
     const res = await getClient().get<TaigaRole[]>("/roles", {
