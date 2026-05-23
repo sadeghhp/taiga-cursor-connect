@@ -4,12 +4,14 @@ import {
   createUserStory,
   getStoryById,
   getStoryByRefSlug,
+  getTasksForStory,
   getTaskByRefSlug,
   searchProject,
   updateTask,
   type CreateOptionalFields
 } from "./taiga-client.js";
 import { TaigaError } from "./http/client.js";
+import type { TaigaTask } from "./types.js";
 
 export interface PlanCsvRow {
   thread_id: string;
@@ -177,6 +179,25 @@ function taskCreateOpts(
   };
 }
 
+/** True when a task already represents this plan thread (marker, tag, or subject). */
+export function taskBelongsToThread(task: TaigaTask, threadId: string): boolean {
+  const marker = THREAD_MARKER(threadId);
+  const tag = `thread:${threadId}`;
+  if (task.description?.includes(marker)) return true;
+  if (task.subject?.includes(threadId)) return true;
+  const tags = task.tags ?? [];
+  return tags.some((t) => t === tag);
+}
+
+export async function findTaskForThreadOnStory(
+  projectId: number,
+  storyId: number,
+  threadId: string
+): Promise<TaigaTask | undefined> {
+  const tasks = await getTasksForStory(projectId, storyId);
+  return tasks.find((t) => taskBelongsToThread(t, threadId));
+}
+
 async function findExistingByThread(
   projectSlug: string,
   threadId: string
@@ -289,21 +310,50 @@ export async function bulkSyncTasksCsv(
 
       if (storyRef && !taskRef) {
         const story = await getStoryByRefSlug(options.projectSlug, storyRef);
-        const task = await createTask(
-          options.projectSlug,
-          taskSubject(row),
-          {
-            description: descriptionWithMarker(row),
-            userStoryId: story.id,
-            ...taskOpts
+        let projectId = story.project;
+        if (projectId == null) {
+          const full = await getStoryById(story.id);
+          if (full.project == null) {
+            throw new TaigaError(
+              `Could not determine project for user story ${story.id}.`
+            );
           }
+          projectId = full.project;
+        }
+        const existingTask = await findTaskForThreadOnStory(
+          projectId,
+          story.id,
+          row.thread_id
         );
-        result.story_ref = story.ref;
-        result.task_ref = task.ref;
-        result.story_id = story.id;
-        result.task_id = task.id;
-        result.action = "created";
-        registerThreadRefs(threadToRefs, row.thread_id, story.ref, task.ref);
+        if (existingTask) {
+          result.story_ref = story.ref;
+          result.task_ref = existingTask.ref;
+          result.story_id = story.id;
+          result.task_id = existingTask.id;
+          result.action = "skipped";
+          registerThreadRefs(
+            threadToRefs,
+            row.thread_id,
+            story.ref,
+            existingTask.ref
+          );
+        } else {
+          const task = await createTask(
+            options.projectSlug,
+            taskSubject(row),
+            {
+              description: descriptionWithMarker(row),
+              userStoryId: story.id,
+              ...taskOpts
+            }
+          );
+          result.story_ref = story.ref;
+          result.task_ref = task.ref;
+          result.story_id = story.id;
+          result.task_id = task.id;
+          result.action = "created";
+          registerThreadRefs(threadToRefs, row.thread_id, story.ref, task.ref);
+        }
       } else if (taskRef && !storyRef) {
         const task = await getTaskByRefSlug(options.projectSlug, taskRef);
         let storyRefResolved: number;
@@ -369,12 +419,6 @@ export async function bulkSyncTasksCsv(
       const blockerId = row.blocked_by?.trim();
       if (!blockerId) continue;
 
-      const blocker = resolveThreadRefs(
-        blockerId,
-        threadToRefs,
-        rowsByThread,
-        results
-      );
       const target = resolveThreadRefs(
         row.thread_id,
         threadToRefs,
@@ -382,12 +426,6 @@ export async function bulkSyncTasksCsv(
         results
       );
 
-      if (!blocker) {
-        blockingErrors.push(
-          `${row.thread_id}: blocker ${blockerId} has no story/task refs`
-        );
-        continue;
-      }
       if (!target?.taskRef) {
         blockingErrors.push(
           `${row.thread_id}: no task ref to mark blocked`

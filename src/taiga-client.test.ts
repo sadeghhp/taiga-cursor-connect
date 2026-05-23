@@ -13,6 +13,7 @@ import {
   setClientForTests,
   trimEpicDetail,
   updateStory,
+  linkStoryToEpic,
   trimHistory,
   trimStoryWithTasks,
   trimTaskDetail
@@ -129,24 +130,32 @@ describe("trimHistory", () => {
 });
 
 describe("resolvePointsByRole", () => {
-  it("maps point ids to role names", () => {
+  it("maps role ids to point values using point defs and role names", () => {
     const labeled = resolvePointsByRole(
-      { "1": 5, "2": 3 },
+      { "10": 5, "20": 3 },
       [
-        { id: 1, name: "UX", value: null },
-        { id: 2, name: "Design", value: null }
+        { id: 5, name: "Medium", value: 8 },
+        { id: 3, name: "Small", value: 3 }
+      ],
+      [
+        { id: 10, name: "Dev" },
+        { id: 20, name: "QA" }
       ]
     );
-    assert.deepEqual(labeled, { UX: 5, Design: 3 });
+    assert.deepEqual(labeled, { Dev: 8, QA: 3 });
   });
 
   it("returns null for empty points", () => {
     assert.equal(resolvePointsByRole(undefined, []), null);
   });
 
-  it("falls back to point_<id> for unknown point ids", () => {
-    const labeled = resolvePointsByRole({ "99": 2 }, []);
-    assert.deepEqual(labeled, { point_99: 2 });
+  it("falls back to role_<id> when role name unknown", () => {
+    const labeled = resolvePointsByRole(
+      { "99": 2 },
+      [{ id: 2, name: "P", value: 5 }],
+      []
+    );
+    assert.deepEqual(labeled, { role_99: 5 });
   });
 });
 
@@ -466,6 +475,9 @@ describe("updateStory epic-only", () => {
     const client = mockAxiosClient({
       get: async (url: string) => {
         if (url === "/userstories/100") return { data: story };
+        if (String(url).includes("/epics/7/related_userstories")) {
+          return { data: [] };
+        }
         return { data: story };
       },
       patch: async () => {
@@ -484,6 +496,42 @@ describe("updateStory epic-only", () => {
     await updateStory({ storyId: 100 }, { epicId: 7 });
     assert.equal(patchCalls, 0);
     assert.equal(linkCalls, 1);
+  });
+});
+
+describe("linkStoryToEpic idempotent", () => {
+  beforeEach(() => {
+    saveEnv();
+    process.env.TAIGA_API_URL = "http://taiga.test/api/v1";
+    process.env.TAIGA_TOKEN = "test-token";
+    resetClient();
+  });
+
+  afterEach(() => {
+    resetClient();
+    restoreEnv();
+  });
+
+  it("skips POST when story is already linked", async () => {
+    let postCalls = 0;
+    const client = mockAxiosClient({
+      get: async (url: string) => {
+        if (String(url).includes("/epics/7/related_userstories")) {
+          return { data: [{ user_story: 100 }] };
+        }
+        return { data: [] };
+      }
+    });
+    (client as AxiosInstance & { post: ReturnType<typeof mock.fn> }).post = mock.fn(
+      async () => {
+        postCalls++;
+        return { data: {} };
+      }
+    );
+    setClientForTests(client);
+
+    await linkStoryToEpic(7, 100);
+    assert.equal(postCalls, 0);
   });
 });
 

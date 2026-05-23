@@ -127,6 +127,20 @@ describe("assertStoryUpdateValid", () => {
     );
   });
 
+  it("rejects unlinkEpic without epicId", () => {
+    assert.throws(
+      () => assertStoryUpdateValid({ unlinkEpic: true }),
+      (err: unknown) => {
+        assert.ok(err instanceof SchemaValidationError);
+        assert.match(
+          (err as SchemaValidationError).message,
+          /epicId is required when unlinkEpic/
+        );
+        return true;
+      }
+    );
+  });
+
   it("rejects empty update", () => {
     assert.throws(
       () => assertStoryUpdateValid({}),

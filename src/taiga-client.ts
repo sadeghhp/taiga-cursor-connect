@@ -26,6 +26,7 @@ export type {
   CreateOptionalFields
 } from "./patch-builders.js";
 
+import axios from "axios";
 import {
   assertEpicRefValid,
   assertIssueRefValid,
@@ -1056,7 +1057,12 @@ export async function fetchStoryBundle(
   }
   const tasks = await getTasksForStory(projectId, story.id);
   const pointDefs = await listPointsForProject(projectId);
-  const pointsByRole = resolvePointsByRole(story.points, pointDefs as TaigaPoint[]);
+  const roles = await listRolesForProject(projectId);
+  const pointsByRole = resolvePointsByRole(
+    story.points,
+    pointDefs as TaigaPoint[],
+    roles
+  );
   let history: HistoryEntrySummary[] | undefined;
   if (includeHistory) {
     history = trimHistory(await getStoryHistory(story.id));

@@ -3,8 +3,10 @@ import { describe, it } from "node:test";
 import {
   parsePlanCsv,
   parseTaigaRef,
-  resolveThreadRefs
+  resolveThreadRefs,
+  taskBelongsToThread
 } from "./plan-sync.js";
+import type { TaigaTask } from "./types.js";
 import type { BulkSyncRowResult, PlanCsvRow } from "./plan-sync.js";
 
 describe("parsePlanCsv", () => {
@@ -30,6 +32,32 @@ describe("parseTaigaRef", () => {
     assert.equal(parseTaigaRef(""), undefined);
     assert.equal(parseTaigaRef("0"), undefined);
     assert.equal(parseTaigaRef("abc"), undefined);
+  });
+});
+
+describe("taskBelongsToThread", () => {
+  it("matches thread marker in description", () => {
+    const task: TaigaTask = {
+      id: 1,
+      ref: 2,
+      subject: "Other",
+      version: 1,
+      is_closed: false,
+      description: "text\n\n<!-- thread:T00001 -->"
+    };
+    assert.equal(taskBelongsToThread(task, "T00001"), true);
+  });
+
+  it("matches thread tag", () => {
+    const task: TaigaTask = {
+      id: 1,
+      ref: 2,
+      subject: "x",
+      version: 1,
+      is_closed: false,
+      tags: ["thread:T00002"]
+    };
+    assert.equal(taskBelongsToThread(task, "T00002"), true);
   });
 });
 

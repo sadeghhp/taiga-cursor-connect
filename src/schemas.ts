@@ -260,7 +260,7 @@ function hasCommonUpdate(d: UpdateFieldCheck): boolean {
     d.isBlocked != null ||
     d.blockedNote != null ||
     d.epicId != null ||
-    d.unlinkEpic === true ||
+    (d.unlinkEpic === true && d.epicId != null) ||
     d.dueDate != null ||
     d.estimateHours != null ||
     d.userStoryId != null
@@ -271,6 +271,9 @@ const updateRequiredMessage =
   "Provide at least one field to update (status, subject, description, milestone, assignee, tags, blocked, etc.).";
 
 export function assertStoryUpdateValid(d: UpdateFieldCheck): void {
+  if (d.unlinkEpic === true && d.epicId == null) {
+    throw new SchemaValidationError("epicId is required when unlinkEpic is true.");
+  }
   if (!hasCommonUpdate(d) && d.milestoneSlug == null && d.milestoneId == null) {
     throw new SchemaValidationError(updateRequiredMessage);
   }
