@@ -108,19 +108,9 @@ import type {
   UserStoryListItem,
   UserStoryListSummary
 } from "./types.js";
+import { getProjectBySlug } from "./project-context.js";
 
-// --- Project ---
-
-export async function getProjectBySlug(slug: string): Promise<TaigaProject> {
-  try {
-    const res = await getClient().get<TaigaProject>("/projects/by_slug", {
-      params: { slug }
-    });
-    return res.data;
-  } catch (e) {
-    throw wrapAxiosError(e, { projectSlug: slug });
-  }
-}
+export { getProjectBySlug } from "./project-context.js";
 
 export function trimProjectDetail(p: TaigaProject): ProjectDetailSummary {
   return {

@@ -1,17 +1,7 @@
 import { getClient, wrapAxiosError } from "./http/client.js";
+import { getProjectBySlug } from "./project-context.js";
 import { resolveProjectListItem } from "./resolvers.js";
-import type { IdNameSummary, MilestoneSummary, TaigaMilestone, TaigaProject } from "./types.js";
-
-async function getProjectBySlug(slug: string): Promise<TaigaProject> {
-  try {
-    const res = await getClient().get<TaigaProject>("/projects/by_slug", {
-      params: { slug }
-    });
-    return res.data;
-  } catch (e) {
-    throw wrapAxiosError(e, { projectSlug: slug });
-  }
-}
+import type { IdNameSummary, MilestoneSummary, TaigaMilestone } from "./types.js";
 
 function trimMilestone(m: TaigaMilestone): MilestoneSummary {
   return {
@@ -147,15 +137,4 @@ export async function applyIssueMetadataToBody(
   else if (fields.severityName != null) {
     body.severity = await resolveSeverityId(projectId, fields.severityName);
   }
-}
-
-export function hasIssueMetadataFields(fields: IssueMetadataFields): boolean {
-  return (
-    fields.typeId != null ||
-    fields.typeName != null ||
-    fields.priorityId != null ||
-    fields.priorityName != null ||
-    fields.severityId != null ||
-    fields.severityName != null
-  );
 }

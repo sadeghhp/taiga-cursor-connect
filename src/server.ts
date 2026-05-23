@@ -112,6 +112,8 @@ import {
 import {
   assertEpicRefValid,
   assertEpicUpdateValid,
+  assertAttachmentRefValid,
+  assertCustomAttributeRefValid,
   assertIssueRefValid,
   assertIssueUpdateValid,
   assertMilestoneRefValid,
@@ -341,6 +343,12 @@ server.tool(
   {
     name: z.string().describe("Project display name"),
     description: z.string().describe("Project description"),
+    slug: z
+      .string()
+      .optional()
+      .describe(
+        "Preferred URL slug (Taiga may normalize from name if unsupported)"
+      ),
     templateId: z.number().optional().describe("Project template id from taiga_list_project_templates"),
     isPrivate: z.boolean().optional().describe("Private project (default false)"),
     isEpicsActivated: z.boolean().optional(),
@@ -355,6 +363,7 @@ server.tool(
         await createProject({
           name: args.name,
           description: args.description,
+          slug: args.slug,
           templateId: args.templateId,
           isPrivate: args.isPrivate,
           isEpicsActivated: args.isEpicsActivated,
@@ -1506,6 +1515,7 @@ server.tool(
   },
   async (args) => {
     try {
+      assertCustomAttributeRefValid(args.entityType, args);
       return jsonResult(
         await getCustomAttributeValues(args.projectSlug, args.entityType, {
           projectSlug: args.projectSlug,
@@ -1538,6 +1548,7 @@ server.tool(
   },
   async (args) => {
     try {
+      assertCustomAttributeRefValid(args.entityType, args);
       const values = parseJsonParam(args.values, z.record(z.unknown()));
       return jsonResult(
         await setCustomAttributeValues(
@@ -1660,6 +1671,7 @@ server.tool(
   },
   async (args) => {
     try {
+      assertAttachmentRefValid(args.entityType, args);
       return jsonResult(
         await listAttachments(args.projectSlug, args.entityType, {
           projectSlug: args.projectSlug,
@@ -1694,6 +1706,7 @@ server.tool(
   },
   async (args) => {
     try {
+      assertAttachmentRefValid(args.entityType, args);
       return jsonResult(
         await uploadAttachment(
           args.projectSlug,

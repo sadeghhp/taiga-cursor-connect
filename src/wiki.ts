@@ -1,16 +1,6 @@
 import { getClient, wrapAxiosError, TaigaError } from "./http/client.js";
+import { getProjectBySlug } from "./project-context.js";
 import type { TaigaProject, WikiPageSummary } from "./types.js";
-
-async function getProjectBySlug(slug: string): Promise<TaigaProject> {
-  try {
-    const res = await getClient().get<TaigaProject>("/projects/by_slug", {
-      params: { slug }
-    });
-    return res.data;
-  } catch (e) {
-    throw wrapAxiosError(e, { projectSlug: slug });
-  }
-}
 
 async function assertWikiEnabled(project: TaigaProject, projectSlug: string): Promise<void> {
   if (!project.is_wiki_activated) {

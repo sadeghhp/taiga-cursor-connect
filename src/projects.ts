@@ -1,21 +1,10 @@
 import { getClient, wrapAxiosError } from "./http/client.js";
+import { getProjectBySlug } from "./project-context.js";
 import type {
   ProjectCreateSummary,
-  ProjectDetailSummary,
   ProjectTemplateSummary,
   TaigaProject
 } from "./types.js";
-
-async function getProjectBySlug(slug: string): Promise<TaigaProject> {
-  try {
-    const res = await getClient().get<TaigaProject>("/projects/by_slug", {
-      params: { slug }
-    });
-    return res.data;
-  } catch (e) {
-    throw wrapAxiosError(e, { projectSlug: slug });
-  }
-}
 
 export function trimProjectModules(p: TaigaProject): ProjectCreateSummary {
   return {
@@ -63,6 +52,8 @@ export async function listProjectTemplates(): Promise<ProjectTemplateSummary[]> 
 export interface CreateProjectInput {
   name: string;
   description: string;
+  /** Sent to Taiga; may be normalized from name if the instance ignores explicit slugs. */
+  slug?: string;
   templateId?: number;
   isPrivate?: boolean;
   isEpicsActivated?: boolean;
@@ -79,6 +70,7 @@ export async function createProject(
     name: input.name,
     description: input.description
   };
+  if (input.slug != null) body.slug = input.slug;
   if (input.templateId != null) body.creation_template = input.templateId;
   if (input.isPrivate != null) body.is_private = input.isPrivate;
   if (input.isEpicsActivated != null) body.is_epics_activated = input.isEpicsActivated;
@@ -161,21 +153,4 @@ export async function deleteProject(projectSlug: string): Promise<void> {
   } catch (e) {
     throw wrapAxiosError(e, { projectSlug });
   }
-}
-
-export function trimProjectDetailExtended(p: TaigaProject): ProjectDetailSummary {
-  return {
-    id: p.id,
-    slug: p.slug,
-    name: p.name,
-    description: p.description ?? null,
-    is_epics_activated: p.is_epics_activated ?? false,
-    is_issues_activated: p.is_issues_activated ?? false,
-    is_wiki_activated: p.is_wiki_activated ?? false,
-    is_kanban_activated: p.is_kanban_activated ?? false,
-    is_backlog_activated: p.is_backlog_activated ?? false,
-    is_private: p.is_private ?? false,
-    total_milestones: p.total_milestones ?? null,
-    total_story_points: p.total_story_points ?? null
-  };
 }

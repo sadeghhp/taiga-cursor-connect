@@ -1,16 +1,6 @@
 import { getClient, wrapAxiosError } from "./http/client.js";
-import type { ProjectStatsSummary, TagColorSummary, TaigaProject } from "./types.js";
-
-async function getProjectBySlug(slug: string): Promise<TaigaProject> {
-  try {
-    const res = await getClient().get<TaigaProject>("/projects/by_slug", {
-      params: { slug }
-    });
-    return res.data;
-  } catch (e) {
-    throw wrapAxiosError(e, { projectSlug: slug });
-  }
-}
+import { getProjectBySlug } from "./project-context.js";
+import type { ProjectStatsSummary, TagColorSummary } from "./types.js";
 
 export async function listProjectTags(projectSlug: string): Promise<TagColorSummary[]> {
   const project = await getProjectBySlug(projectSlug);

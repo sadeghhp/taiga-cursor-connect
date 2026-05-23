@@ -4,9 +4,12 @@
  * Requires: TAIGA_API_URL, TAIGA_TOKEN, TAIGA_PROJECT_SLUG (default taiga-cursor-connect)
  */
 import "dotenv/config";
+import { uploadAttachment, deleteAttachment } from "../src/attachments.js";
 import {
   createProject,
+  createUserStory,
   deleteProject,
+  deleteUserStory,
   getProjectDetail,
   listEpics,
   listIssueTypes,
@@ -59,6 +62,24 @@ async function main(): Promise<void> {
   console.log(`  created slug=${created.slug} id=${created.id}`);
   await deleteProject(created.slug);
   console.log("  deleted temp project");
+
+  console.log("taiga_upload_attachment (smoke)...");
+  const story = await createUserStory(
+    slug,
+    "MCP attachment smoke",
+    "Temporary story for attachment smoke test"
+  );
+  const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const fixturePath = join(repoRoot, "package.json");
+  const attachment = await uploadAttachment(slug, "user_story", fixturePath, {
+    projectSlug: slug,
+    storyRef: story.ref
+  });
+  console.log(`  uploaded attachment id=${attachment.id} name=${attachment.name}`);
+  await deleteAttachment("user_story", attachment.id);
+  console.log("  deleted attachment");
+  await deleteUserStory(story.id);
+  console.log("  deleted temp story");
 
   const dir = dirname(fileURLToPath(import.meta.url));
   const sample = join(dir, "fixtures/tasks-sample.csv");

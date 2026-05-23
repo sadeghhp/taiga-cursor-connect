@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   SchemaValidationError,
+  assertAttachmentRefValid,
+  assertCustomAttributeRefValid,
   assertEpicRefValid,
   assertIssueRefValid,
   assertIssueUpdateValid,
@@ -163,8 +165,41 @@ describe("assertIssueUpdateValid", () => {
     assert.doesNotThrow(() => assertIssueUpdateValid({ statusName: "Done" }));
   });
 
+  it("accepts issue metadata fields", () => {
+    assert.doesNotThrow(() =>
+      assertIssueUpdateValid({ priorityName: "High", severityName: "Minor" })
+    );
+  });
+
   it("rejects empty update", () => {
     assert.throws(() => assertIssueUpdateValid({}), SchemaValidationError);
+  });
+});
+
+describe("assertCustomAttributeRefValid", () => {
+  it("requires story ref for user_story", () => {
+    assert.doesNotThrow(() =>
+      assertCustomAttributeRefValid("user_story", {
+        projectSlug: "p",
+        storyRef: 1
+      })
+    );
+    assert.throws(
+      () => assertCustomAttributeRefValid("user_story", { projectSlug: "p" }),
+      SchemaValidationError
+    );
+  });
+});
+
+describe("assertAttachmentRefValid", () => {
+  it("requires wikiId for wiki attachments", () => {
+    assert.doesNotThrow(() =>
+      assertAttachmentRefValid("wiki", { wikiId: 5 })
+    );
+    assert.throws(
+      () => assertAttachmentRefValid("wiki", {}),
+      SchemaValidationError
+    );
   });
 });
 

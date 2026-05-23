@@ -1,17 +1,7 @@
 import { getClient, wrapAxiosError } from "./http/client.js";
+import { getProjectBySlug } from "./project-context.js";
 import { resolveRoleId } from "./metadata.js";
-import type { MembershipSummary, TaigaProject } from "./types.js";
-
-async function getProjectBySlug(slug: string): Promise<TaigaProject> {
-  try {
-    const res = await getClient().get<TaigaProject>("/projects/by_slug", {
-      params: { slug }
-    });
-    return res.data;
-  } catch (e) {
-    throw wrapAxiosError(e, { projectSlug: slug });
-  }
-}
+import type { MembershipSummary } from "./types.js";
 
 export interface InviteMemberInput {
   username: string;

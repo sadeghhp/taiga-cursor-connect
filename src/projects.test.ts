@@ -109,6 +109,7 @@ describe("createProject", () => {
           assert.deepEqual(body, {
             name: "New App",
             description: "desc",
+            slug: "new-app",
             creation_template: 1,
             is_private: true,
             is_epics_activated: true
@@ -128,6 +129,7 @@ describe("createProject", () => {
     const created = await createProject({
       name: "New App",
       description: "desc",
+      slug: "new-app",
       templateId: 1,
       isPrivate: true,
       isEpicsActivated: true

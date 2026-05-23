@@ -332,3 +332,54 @@ export function buildListQuery(args: {
     pageSize: args.pageSize
   };
 }
+
+export type CustomAttributeEntityType = "user_story" | "task" | "issue" | "epic";
+export type AttachmentEntityType = "user_story" | "task" | "issue" | "epic" | "wiki";
+
+type EntityRefCheck = {
+  projectSlug?: string;
+  storyId?: number;
+  storyRef?: number;
+  taskId?: number;
+  taskRef?: number;
+  issueId?: number;
+  issueRef?: number;
+  epicId?: number;
+  epicRef?: number;
+  wikiId?: number;
+};
+
+export function assertCustomAttributeRefValid(
+  entityType: CustomAttributeEntityType,
+  d: EntityRefCheck
+): void {
+  switch (entityType) {
+    case "user_story":
+      assertStoryRefValid(d);
+      return;
+    case "task":
+      assertTaskRefValid(d);
+      return;
+    case "issue":
+      assertIssueRefValid(d);
+      return;
+    case "epic":
+      assertEpicRefValid(d);
+      return;
+    default:
+      throw new SchemaValidationError(`Unknown entity type: ${entityType}`);
+  }
+}
+
+export function assertAttachmentRefValid(
+  entityType: AttachmentEntityType,
+  d: EntityRefCheck
+): void {
+  if (entityType === "wiki") {
+    if (d.wikiId == null) {
+      throw new SchemaValidationError("wikiId is required for wiki attachments.");
+    }
+    return;
+  }
+  assertCustomAttributeRefValid(entityType, d);
+}
