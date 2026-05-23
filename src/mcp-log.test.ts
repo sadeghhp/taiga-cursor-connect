@@ -1,13 +1,24 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 import {
   getLogLevel,
+  getRegisteredToolCount,
+  installToolLogging,
   logReady,
   logToolEnd,
   logToolStart,
+  redactToolArgs,
   setLogSink,
   summarizeToolArgs
 } from "./mcp-log.js";
+import { PACKAGE_VERSION } from "./version.js";
+
+type RegisteredTools = Record<
+  string,
+  { handler: (...args: unknown[]) => Promise<unknown> }
+>;
 
 describe("mcp-log", () => {
   const lines: string[] = [];
@@ -62,6 +73,35 @@ describe("mcp-log", () => {
       });
       assert.equal(summary, "projectSlug=taiga-cursor-connect storyRef=42");
     });
+
+    it("summarizes file paths as basename only", () => {
+      const summary = summarizeToolArgs("taiga_bulk_sync_tasks_csv", {
+        projectSlug: "demo",
+        csvPath: "/home/user/plans/tasks.csv"
+      });
+      assert.equal(summary, "projectSlug=demo csvPath=tasks.csv");
+    });
+  });
+
+  describe("redactToolArgs", () => {
+    it("truncates sensitive text fields for debug output", () => {
+      const redacted = redactToolArgs({
+        subject: "s".repeat(100),
+        description: "d".repeat(100),
+        projectSlug: "demo"
+      });
+      assert.ok(redacted);
+      assert.equal(String(redacted.subject).length, 40);
+      assert.equal(String(redacted.description).length, 40);
+      assert.equal(redacted.projectSlug, "demo");
+    });
+
+    it("redacts nested sensitive keys", () => {
+      const redacted = redactToolArgs({
+        meta: { token: "secret", id: 1 }
+      });
+      assert.deepEqual(redacted?.meta, { token: "[redacted]", id: 1 });
+    });
   });
 
   describe("stderr output", () => {
@@ -69,7 +109,11 @@ describe("mcp-log", () => {
       captureLogs();
       logToolStart("taiga_list_projects", {});
       logToolEnd("taiga_list_projects", 12, { isError: false });
-      logReady({ version: "0.7.0", apiHost: "http://localhost:9000/api/v1", toolCount: 90 });
+      logReady({
+        version: PACKAGE_VERSION,
+        apiHost: "http://localhost:9000/api/v1",
+        toolCount: 90
+      });
       assert.equal(lines.length, 0);
     });
 
@@ -85,6 +129,17 @@ describe("mcp-log", () => {
       assert.match(lines[1], /25ms/);
     });
 
+    it("does not leak long subject text at debug", () => {
+      process.env.TAIGA_MCP_LOG = "debug";
+      captureLogs();
+      logToolStart("taiga_create_story", {
+        projectSlug: "demo",
+        subject: "x".repeat(200)
+      });
+      assert.ok(!lines[0]?.includes("x".repeat(50)));
+      assert.match(lines[0], /subject/);
+    });
+
     it("marks failed tools at info", () => {
       process.env.TAIGA_MCP_LOG = "info";
       captureLogs();
@@ -96,13 +151,13 @@ describe("mcp-log", () => {
       process.env.TAIGA_MCP_LOG = "info";
       captureLogs();
       logReady({
-        version: "0.7.0",
+        version: PACKAGE_VERSION,
         apiHost: "http://localhost:9000/api/v1",
         toolCount: 90
       });
       assert.equal(lines.length, 1);
       assert.match(lines[0], /ready/);
-      assert.match(lines[0], /v0\.7\.0/);
+      assert.match(lines[0], new RegExp(`v${PACKAGE_VERSION.replace(/\./g, "\\.")}`));
       assert.match(lines[0], /90 tools/);
     });
 
@@ -113,5 +168,72 @@ describe("mcp-log", () => {
       logToolEnd("taiga_get_story", 10, { isError: true });
       assert.ok(!/\x1b\[[0-9;]*m/u.test(lines[0]));
     });
+  });
+
+  describe("installToolLogging", () => {
+    it("wraps registered tools and logs handler lifecycle", async () => {
+      process.env.TAIGA_MCP_LOG = "info";
+      captureLogs();
+
+      const server = new McpServer({ name: "test", version: "0" });
+      installToolLogging(server);
+
+      server.tool("test_echo", { msg: z.string() }, async ({ msg }) => ({
+        content: [{ type: "text" as const, text: msg }]
+      }));
+
+      assert.equal(getRegisteredToolCount(), 1);
+
+      const tools = (server as unknown as { _registeredTools: RegisteredTools })
+        ._registeredTools;
+      await tools.test_echo.handler({ msg: "hi" }, {});
+
+      assert.equal(lines.length, 2);
+      assert.match(lines[0], /→ test_echo/);
+      assert.match(lines[1], /✓ test_echo/);
+    });
+
+    it("treats empty schema as tool args for logging", async () => {
+      process.env.TAIGA_MCP_LOG = "info";
+      captureLogs();
+
+      const server = new McpServer({ name: "test", version: "0" });
+      installToolLogging(server);
+
+      server.tool("test_noargs", {}, async () => ({
+        content: [{ type: "text" as const, text: "ok" }]
+      }));
+
+      const tools = (server as unknown as { _registeredTools: RegisteredTools })
+        ._registeredTools;
+      await tools.test_noargs.handler({}, {});
+
+      assert.match(lines[0], /→ test_noargs/);
+    });
+
+    it("logs tool errors returned as isError results", async () => {
+      process.env.TAIGA_MCP_LOG = "info";
+      captureLogs();
+
+      const server = new McpServer({ name: "test", version: "0" });
+      installToolLogging(server);
+
+      server.tool("test_fail", {}, async () => ({
+        content: [{ type: "text" as const, text: "bad" }],
+        isError: true
+      }));
+
+      const tools = (server as unknown as { _registeredTools: RegisteredTools })
+        ._registeredTools;
+      await tools.test_fail.handler({}, {});
+
+      assert.match(lines[1], /✗ test_fail/);
+    });
+  });
+});
+
+describe("PACKAGE_VERSION", () => {
+  it("matches package.json version", () => {
+    assert.match(PACKAGE_VERSION, /^\d+\.\d+\.\d+$/);
   });
 });

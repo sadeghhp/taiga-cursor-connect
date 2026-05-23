@@ -1,10 +1,12 @@
 import pc from "picocolors";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { basename } from "node:path";
 
 export type LogLevel = "off" | "info" | "debug";
 
 const PREFIX = "[taiga-mcp]";
 const MAX_STRING_LEN = 80;
+const MAX_DEBUG_TEXT_LEN = 40;
 const MAX_DEBUG_JSON = 400;
 
 const REDACT_KEYS = new Set([
@@ -14,6 +16,9 @@ const REDACT_KEYS = new Set([
   "auth_token",
   "TAIGA_TOKEN"
 ]);
+
+/** Long or sensitive text fields — truncated heavily in debug output. */
+const SENSITIVE_TEXT_KEYS = new Set(["description", "subject", "body", "url"]);
 
 const SUMMARY_KEYS = [
   "projectSlug",
@@ -34,7 +39,9 @@ const SUMMARY_KEYS = [
   "page",
   "text",
   "statusName",
-  "entityType"
+  "entityType",
+  "csvPath",
+  "filePath"
 ] as const;
 
 type WriteFn = (line: string) => void;
@@ -70,12 +77,30 @@ function truncate(value: string, max: number): string {
   return `${value.slice(0, max - 1)}…`;
 }
 
+function formatSummaryValue(key: string, value: unknown): string {
+  if (key === "csvPath" || key === "filePath") {
+    return basename(String(value));
+  }
+  return String(redactValue(key, value));
+}
+
 function redactValue(key: string, value: unknown): unknown {
   if (REDACT_KEYS.has(key)) return "[redacted]";
+  if (SENSITIVE_TEXT_KEYS.has(key) && typeof value === "string") {
+    return truncate(value, MAX_DEBUG_TEXT_LEN);
+  }
   if (typeof value === "string" && value.length > MAX_STRING_LEN) {
     return truncate(value, MAX_STRING_LEN);
   }
   return value;
+}
+
+/** Redact tool args for debug JSON logging. */
+export function redactToolArgs(args: unknown): Record<string, unknown> | undefined {
+  if (args == null || typeof args !== "object" || Array.isArray(args)) {
+    return undefined;
+  }
+  return redactRecord(args as Record<string, unknown>);
 }
 
 function redactRecord(input: Record<string, unknown>): Record<string, unknown> {
@@ -85,8 +110,12 @@ function redactRecord(input: Record<string, unknown>): Record<string, unknown> {
       out[key] = "[redacted]";
       continue;
     }
-    if (key === "description" && typeof value === "string") {
-      out[key] = truncate(value, MAX_STRING_LEN);
+    if (SENSITIVE_TEXT_KEYS.has(key) && typeof value === "string") {
+      out[key] = truncate(value, MAX_DEBUG_TEXT_LEN);
+      continue;
+    }
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+      out[key] = redactRecord(value as Record<string, unknown>);
       continue;
     }
     out[key] = redactValue(key, value);
@@ -107,7 +136,7 @@ export function summarizeToolArgs(
   for (const key of SUMMARY_KEYS) {
     const value = record[key];
     if (value === undefined || value === null || value === "") continue;
-    parts.push(`${key}=${String(redactValue(key, value))}`);
+    parts.push(`${key}=${formatSummaryValue(key, value)}`);
   }
   return parts.length > 0 ? parts.join(" ") : undefined;
 }
@@ -143,11 +172,10 @@ export function logReady(opts: {
 export function logToolStart(name: string, args: unknown): void {
   if (!levelAtLeast("info")) return;
   const summary = summarizeToolArgs(name, args);
+  const redacted = redactToolArgs(args);
   const detail =
-    levelAtLeast("debug") && args != null
-      ? pc.dim(
-          truncate(JSON.stringify(redactRecord(args as Record<string, unknown>)), MAX_DEBUG_JSON)
-        )
+    levelAtLeast("debug") && redacted != null
+      ? pc.dim(truncate(JSON.stringify(redacted), MAX_DEBUG_JSON))
       : summary
         ? pc.dim(summary)
         : "";
@@ -201,8 +229,26 @@ function isZodShape(value: unknown): boolean {
   });
 }
 
+function isToolAnnotations(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const entries = Object.values(value as Record<string, unknown>);
+  if (entries.length === 0) return false;
+  return entries.every((v) => v == null || typeof v !== "object");
+}
+
 function toolHasInputSchema(rest: unknown[]): boolean {
-  return rest.slice(0, -1).some(isZodShape);
+  for (const item of rest.slice(0, -1)) {
+    if (typeof item === "string") continue;
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      continue;
+    }
+    if (isZodShape(item)) return true;
+    if (Object.keys(item as object).length === 0) return true;
+    if (!isToolAnnotations(item)) return true;
+  }
+  return false;
 }
 
 let registeredToolCount = 0;

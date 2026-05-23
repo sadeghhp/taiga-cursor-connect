@@ -10,6 +10,7 @@ import {
   logConfigError,
   logReady
 } from "./mcp-log.js";
+import { PACKAGE_VERSION } from "./version.js";
 import { bulkSyncTasksCsv } from "./plan-sync.js";
 import {
   listAttachments,
@@ -333,7 +334,7 @@ const attachmentEntitySchema = z
 
 const server = new McpServer({
   name: "taiga-mcp",
-  version: "0.7.0"
+  version: PACKAGE_VERSION
 });
 
 installToolLogging(server);
@@ -2150,7 +2151,7 @@ server.tool(
 
 try {
   logReady({
-    version: "0.7.0",
+    version: PACKAGE_VERSION,
     apiHost: getApiBaseUrl(),
     toolCount: getRegisteredToolCount()
   });

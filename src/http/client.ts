@@ -155,7 +155,8 @@ export function setClientForTests(instance: AxiosInstance | null): void {
 
 export async function patchWithOCC<T extends { version: number }>(
   fetchCurrent: () => Promise<T>,
-  patch: (entity: T) => Promise<void>
+  patch: (entity: T) => Promise<void>,
+  logContext?: string
 ): Promise<void> {
   let lastErr: unknown;
   for (let attempt = 0; attempt <= OCC_MAX_RETRIES; attempt++) {
@@ -166,7 +167,13 @@ export async function patchWithOCC<T extends { version: number }>(
     } catch (e) {
       lastErr = e;
       if (attempt < OCC_MAX_RETRIES && isVersionConflict(e)) {
-        logHttpRetry("occ", attempt + 1, OCC_MAX_RETRIES, "PATCH", "entity");
+        logHttpRetry(
+          "occ",
+          attempt + 1,
+          OCC_MAX_RETRIES,
+          "PATCH",
+          logContext ?? "entity"
+        );
         continue;
       }
       throw wrapAxiosError(e);
