@@ -4,7 +4,7 @@ Bootstrap Taiga structure for Exchange R1 using **only** the `user-taiga` MCP se
 
 ## Prerequisites
 
-- Taiga running and reachable (`TAIGA_API_URL`, `TAIGA_TOKEN` in MCP config)
+- Taiga running and reachable (`TAIGA_API_URL` plus `TAIGA_USERNAME`/`TAIGA_PASSWORD` or `TAIGA_TOKEN` in MCP config)
 - Docker image `taiga-mcp:0.6.0` (or latest local build)
 - Test project slug (e.g. `mcp-test`) via `TAIGA_PROJECT_SLUG`, or create one with `taiga_create_project`
 

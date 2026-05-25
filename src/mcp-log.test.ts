@@ -102,6 +102,17 @@ describe("mcp-log", () => {
       });
       assert.deepEqual(redacted?.meta, { token: "[redacted]", id: 1 });
     });
+
+    it("redacts auth token fields", () => {
+      const redacted = redactToolArgs({
+        auth_token: "eyJ.access",
+        refresh: "eyJ.refresh",
+        TAIGA_PASSWORD: "secret"
+      });
+      assert.equal(redacted?.auth_token, "[redacted]");
+      assert.equal(redacted?.refresh, "[redacted]");
+      assert.equal(redacted?.TAIGA_PASSWORD, "[redacted]");
+    });
   });
 
   describe("stderr output", () => {

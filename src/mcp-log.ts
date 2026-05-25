@@ -14,7 +14,11 @@ const REDACT_KEYS = new Set([
   "password",
   "token",
   "auth_token",
-  "TAIGA_TOKEN"
+  "refresh",
+  "TAIGA_TOKEN",
+  "TAIGA_PASSWORD",
+  "TAIGA_REFRESH_TOKEN",
+  "TAIGA_USERNAME"
 ]);
 
 /** Long or sensitive text fields — truncated heavily in debug output. */
@@ -157,6 +161,16 @@ export function logConfigError(message: string): void {
   sink(`${PREFIX} ${pc.red("✗")} ${pc.red(message)}`);
 }
 
+export function logAuthReady(opts: { mode: "login" | "token"; username?: string }): void {
+  if (!levelAtLeast("info")) return;
+  const modeLabel = opts.mode === "login" ? "login" : "token";
+  const user =
+    opts.username != null && opts.username !== ""
+      ? ` · ${pc.dim(opts.username)}`
+      : "";
+  write(`${pc.green("✓")} auth ${pc.yellow(modeLabel)}${user}`);
+}
+
 export function logReady(opts: {
   version: string;
   apiHost: string;
@@ -197,7 +211,7 @@ export function logToolEnd(
 }
 
 export function logHttpRetry(
-  kind: "429" | "occ",
+  kind: "401" | "429" | "occ",
   attempt: number,
   max: number,
   method: string,

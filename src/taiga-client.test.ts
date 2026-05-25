@@ -535,24 +535,3 @@ describe("linkStoryToEpic idempotent", () => {
   });
 });
 
-describe("getClient / requireConfig", () => {
-  beforeEach(() => {
-    saveEnv();
-    resetClient();
-  });
-
-  afterEach(() => {
-    resetClient();
-    restoreEnv();
-  });
-
-  it("throws TaigaError when env vars are missing", () => {
-    delete process.env.TAIGA_API_URL;
-    delete process.env.TAIGA_TOKEN;
-    assert.throws(() => getClient(), (err: unknown) => {
-      assert.ok(err instanceof TaigaError);
-      assert.match((err as TaigaError).message, /Missing TAIGA_API_URL or TAIGA_TOKEN/);
-      return true;
-    });
-  });
-});

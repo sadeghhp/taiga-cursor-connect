@@ -16,13 +16,14 @@
 - **Slug + ref workflow** — Most tools accept `projectSlug` and UI ref (`#42`) instead of internal Taiga ids.
 - **Agent-friendly responses** — Trimmed JSON, human-readable `points_by_role`, paginated lists.
 - **Safe writes** — Optimistic concurrency on PATCH with automatic retry on version conflicts; HTTP 429 backoff.
+- **Auto-auth** — Log in with username/password or legacy tokens; access tokens refresh on 401 without manual copy-paste.
 - **Plan-driven bulk import** — `taiga_bulk_sync_tasks_csv` syncs a CSV plan into stories/tasks with idempotency and `dryRun`.
 
 ## Quick start
 
-1. **Token** — Log in to Taiga and copy `auth_token` (see [Get a Taiga auth token](#get-a-taiga-auth-token)).
+1. **Credentials** — Set Taiga username and password in MCP config (recommended), or paste a bearer token (see [Authentication](#authentication)).
 2. **Image** — From the repo root: `npm run docker:build`
-3. **Cursor** — Add the MCP block below to **Settings → MCP** (or `~/.cursor/mcp.json`), set `TAIGA_TOKEN`, restart Cursor.
+3. **Cursor** — Add the MCP block below to **Settings → MCP** (or `~/.cursor/mcp.json`), restart Cursor.
 4. **Try** — In chat: *“Use `taiga_list_projects` and summarize my projects.”*
 
 ```json
@@ -34,7 +35,8 @@
         "run", "-i", "--rm",
         "--add-host=host.docker.internal:host-gateway",
         "-e", "TAIGA_API_URL=http://host.docker.internal:9000/api/v1",
-        "-e", "TAIGA_TOKEN=YOUR_AUTH_TOKEN_HERE",
+        "-e", "TAIGA_USERNAME=YOUR_USERNAME",
+        "-e", "TAIGA_PASSWORD=YOUR_PASSWORD",
         "-e", "TAIGA_MCP_LOG=info",
         "taiga-mcp:local"
       ]
@@ -43,7 +45,7 @@
 }
 ```
 
-Replace `YOUR_AUTH_TOKEN_HERE`. On macOS, `host.docker.internal` often works without `--add-host`; keep it for Linux.
+On macOS, `host.docker.internal` often works without `--add-host`; keep it for Linux.
 
 Set `TAIGA_MCP_LOG=info` (optional) to see friendly tool-call logs on **stderr**. The MCP JSON-RPC stream uses **stdout** only — do not redirect stderr into stdout.
 
@@ -53,7 +55,7 @@ Set `TAIGA_MCP_LOG=info` (optional) to see friendly tool-call logs on **stderr**
 
 - [Prerequisites](#prerequisites)
 - [Setup](#setup)
-  - [Get a Taiga auth token](#get-a-taiga-auth-token)
+  - [Authentication](#authentication)
   - [Build the Docker image](#build-the-docker-image)
   - [Configure Cursor MCP](#configure-cursor-mcp)
 - [Example prompts](#example-prompts)
@@ -76,20 +78,39 @@ Set `TAIGA_MCP_LOG=info` (optional) to see friendly tool-call logs on **stderr**
 
 - [Docker](https://docs.docker.com/get-docker/)
 - Taiga reachable at `http://localhost:9000` (or change URLs below)
-- A Taiga auth token with permission to create projects (or an existing project)
+- Taiga credentials with permission to create projects (or an existing project)
 
 ## Setup
 
-### Get a Taiga auth token
+### Authentication
+
+The connector authenticates on startup and **refreshes tokens automatically** when the API returns **401**.
+
+**Recommended — username and password** (no manual token copy):
+
+| Variable | Description |
+|----------|-------------|
+| `TAIGA_API_URL` | API base, e.g. `http://host.docker.internal:9000/api/v1` |
+| `TAIGA_USERNAME` | Taiga username or email |
+| `TAIGA_PASSWORD` | Taiga password |
+
+If both username and `TAIGA_TOKEN` are set, **login wins**.
+
+**Legacy — static token** (CI or when you prefer not to store a password):
+
+| Variable | Description |
+|----------|-------------|
+| `TAIGA_TOKEN` | Bearer `auth_token` from `POST /api/v1/auth` |
+| `TAIGA_REFRESH_TOKEN` | Optional; enables auto-refresh on 401 without password |
+
+Obtain tokens once for the legacy path:
 
 ```bash
 curl -s -X POST http://localhost:9000/api/v1/auth \
   -H "Content-Type: application/json" \
   -d '{"type":"normal","username":"admin","password":"YOUR_PASSWORD"}' \
-  | jq -r '.auth_token'
+  | jq '{auth_token, refresh}'
 ```
-
-Tokens expire; repeat login when API calls return **HTTP 401**.
 
 ### Build the Docker image
 
@@ -346,7 +367,9 @@ Without Docker:
 ```bash
 cp .env.example .env
 # TAIGA_API_URL=http://localhost:9000/api/v1
-# TAIGA_TOKEN=<token>
+# TAIGA_USERNAME=admin
+# TAIGA_PASSWORD=<password>
+# or: TAIGA_TOKEN=<token>
 
 npm install
 npm run dev
@@ -370,7 +393,8 @@ Wire Cursor to stdio directly (example):
       "args": ["tsx", "/absolute/path/to/taiga-cursor-connect/src/server.ts"],
       "env": {
         "TAIGA_API_URL": "http://localhost:9000/api/v1",
-        "TAIGA_TOKEN": "YOUR_AUTH_TOKEN_HERE"
+        "TAIGA_USERNAME": "YOUR_USERNAME",
+        "TAIGA_PASSWORD": "YOUR_PASSWORD"
       }
     }
   }
@@ -383,7 +407,7 @@ Wire Cursor to stdio directly (example):
 
 ```bash
 cp .env.example .env
-# Set TAIGA_TOKEN
+# Set TAIGA_USERNAME + TAIGA_PASSWORD, or TAIGA_TOKEN
 
 docker compose build
 docker compose run --rm taiga-mcp
@@ -398,10 +422,15 @@ The process waits on stdio (normal for MCP). Prefer the [Cursor docker `run` con
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `TAIGA_API_URL` | Yes | API base, e.g. `http://host.docker.internal:9000/api/v1` in Docker |
-| `TAIGA_TOKEN` | Yes | Bearer token from `POST /api/v1/auth` |
+| `TAIGA_USERNAME` | Yes* | Taiga username or email (login mode) |
+| `TAIGA_PASSWORD` | Yes* | Taiga password (login mode) |
+| `TAIGA_TOKEN` | Yes* | Bearer `auth_token` (token mode) |
+| `TAIGA_REFRESH_TOKEN` | No | Refresh token for auto-renewal on 401 in token mode |
 | `TAIGA_MCP_LOG` | No | MCP stderr logging: `off` (default), `info` (tool calls), or `debug` (+ HTTP retries) |
 
-See [.env.example](.env.example). Never commit tokens to the repo.
+\* Provide **either** `TAIGA_USERNAME` + `TAIGA_PASSWORD` **or** `TAIGA_TOKEN`.
+
+See [.env.example](.env.example). Never commit credentials or tokens to the repo.
 
 ---
 
@@ -414,11 +443,11 @@ npm test          # build + test
 npm run test:watch
 ```
 
-Optional live smoke (Taiga + token required):
+Optional live smoke (Taiga + credentials required):
 
 ```bash
 npm run smoke
-# or: TAIGA_API_URL=... TAIGA_TOKEN=... npx tsx scripts/smoke-mcp-tools.ts
+# or: TAIGA_API_URL=... TAIGA_USERNAME=... TAIGA_PASSWORD=... npx tsx scripts/smoke-mcp-tools.ts
 ```
 
 Coverage includes Zod validation (`schemas.ts`), response trimming, optimistic-concurrency retry, and status/milestone resolution (mocked HTTP).
@@ -431,8 +460,11 @@ CI runs `npm test` on push and pull request (Node 22).
 
 | Issue | What to try |
 |-------|-------------|
-| `Missing TAIGA_API_URL or TAIGA_TOKEN` | Set `-e` flags in MCP config or `.env` for local dev |
-| HTTP 401 | Refresh token via `/auth` |
+| `Missing Taiga credentials` | Set `TAIGA_USERNAME`+`TAIGA_PASSWORD` or `TAIGA_TOKEN` in MCP config / `.env` |
+| `TAIGA_PASSWORD is required when TAIGA_USERNAME is set` | Set both username and password, or remove `TAIGA_USERNAME` and use `TAIGA_TOKEN` only |
+| `TAIGA_USERNAME is required when TAIGA_PASSWORD is set` | Set both env vars, or remove `TAIGA_PASSWORD` |
+| HTTP 401 / auth errors at startup | Invalid `TAIGA_TOKEN` — fix token or use login mode; with token mode, add `TAIGA_REFRESH_TOKEN` |
+| HTTP 401 / auth errors during use | With login mode, check username/password; with token mode, add `TAIGA_REFRESH_TOKEN` or switch to login mode |
 | Story not found | Confirm project **slug** (URL segment) and story **ref** |
 | Status not found | Use exact Taiga label for `statusName`, or pass `statusId` |
 | Cannot reach Taiga from container | Taiga on host port 9000; test: `docker run --rm --add-host=host.docker.internal:host-gateway curlimages/curl -s http://host.docker.internal:9000/api/v1/` |
@@ -443,7 +475,7 @@ CI runs `npm test` on push and pull request (Node 22).
 
 ## Security
 
-- **`TAIGA_TOKEN`** grants API access within your Taiga permissions. Keep it in env vars or MCP config, not in git.
+- **Credentials** (`TAIGA_PASSWORD`, `TAIGA_TOKEN`, `TAIGA_REFRESH_TOKEN`) grant API access within your Taiga permissions. They live in MCP config or `.env` as plaintext—do not commit them to git. Prefer username/password only on trusted machines; token+refresh avoids storing a password.
 - **`taiga_bulk_sync_tasks_csv`** reads `csvPath` from the host (or paths visible in the container). Only pass trusted paths; a client with MCP access could trigger reads the process can open.
 - **`taiga_upload_attachment`** reads `filePath` from the host the same way. Only pass trusted paths.
 - Trust boundary: your machine, Docker mounts, and who can invoke MCP tools in Cursor.

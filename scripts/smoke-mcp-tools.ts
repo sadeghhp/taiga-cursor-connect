@@ -1,9 +1,11 @@
 #!/usr/bin/env npx tsx
 /**
  * Smoke test against live Taiga (optional).
- * Requires: TAIGA_API_URL, TAIGA_TOKEN, TAIGA_PROJECT_SLUG (default taiga-cursor-connect)
+ * Requires: TAIGA_API_URL and either TAIGA_USERNAME+TAIGA_PASSWORD or TAIGA_TOKEN.
+ * Optional: TAIGA_PROJECT_SLUG (default taiga-cursor-connect)
  */
 import "dotenv/config";
+import { ensureAuthReady } from "../src/http/auth.js";
 import { uploadAttachment, deleteAttachment } from "../src/attachments.js";
 import {
   createProject,
@@ -27,6 +29,7 @@ import { dirname, join } from "node:path";
 const slug = process.env.TAIGA_PROJECT_SLUG ?? "taiga-cursor-connect";
 
 async function main(): Promise<void> {
+  await ensureAuthReady();
   console.log("taiga_list_projects...");
   const projects = await listProjects();
   console.log(`  ${projects.length} project(s)`);

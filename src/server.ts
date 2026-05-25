@@ -3,10 +3,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { formatTaigaError } from "./errors.js";
+import { ensureAuthReady, getAuthMode, getLoggedInUsername } from "./http/auth.js";
 import { getApiBaseUrl } from "./http/client.js";
 import {
   getRegisteredToolCount,
   installToolLogging,
+  logAuthReady,
   logConfigError,
   logReady
 } from "./mcp-log.js";
@@ -2150,6 +2152,14 @@ server.tool(
 );
 
 try {
+  await ensureAuthReady();
+  const mode = getAuthMode();
+  if (mode) {
+    logAuthReady({
+      mode,
+      username: getLoggedInUsername() ?? undefined
+    });
+  }
   logReady({
     version: PACKAGE_VERSION,
     apiHost: getApiBaseUrl(),
