@@ -1,17 +1,24 @@
 # Taiga Cursor Connect
 
+### MCP server for [Taiga](https://taiga.io)
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**MCP server** that connects [Cursor](https://cursor.com) to [Taiga](https://taiga.io) over the REST API. Cursor spawns the server in Docker over stdio; the agent can list, read, create, and update backlog items without leaving the editor.
+**Taiga Cursor Connect** is a [Model Context Protocol](https://modelcontextprotocol.io) (**MCP**) server for **Taiga** — the open-source agile project management platform (user stories, tasks, issues, epics, Kanban, sprints). It exposes Taiga’s REST API as MCP **tools** so AI clients such as [Cursor](https://cursor.com) can manage your backlog from chat without opening the Taiga web UI.
+
+This repository is **not** Taiga itself. It is the **bridge**: a small Node process (Docker or local) that Cursor launches over stdio. The agent calls tools like `taiga_list_projects`, `taiga_get_story`, and `taiga_update_task` against your Taiga instance (self-hosted or cloud).
 
 | | |
 |---|---|
-| **Protocol** | [Model Context Protocol](https://modelcontextprotocol.io) (stdio) |
+| **What** | MCP server for Taiga (`taiga-mcp`) |
+| **Works with** | [Cursor](https://cursor.com) and any MCP client over stdio |
+| **Taiga API** | REST v1 — self-hosted or [Taiga Cloud](https://taiga.io) |
+| **Protocol** | [MCP](https://modelcontextprotocol.io) (stdio) |
 | **Runtime** | Node 22 (Docker image or local `tsx`) |
-| **Taiga** | Self-hosted or cloud; default `http://localhost:9000` |
-| **Version** | 0.7.0 — **90 tools** (default **38** via `core` tier) |
+| **Tools** | 90 Taiga operations (default **38** via `core` tier) |
+| **Version** | 0.7.0 |
 
-## Why use this
+## Why use this Taiga MCP server
 
 - **Slug + ref workflow** — Most tools accept `projectSlug` and UI ref (`#42`) instead of internal Taiga ids.
 - **Agent-friendly responses** — Trimmed JSON, human-readable `points_by_role`, paginated lists.
@@ -22,10 +29,14 @@
 
 ## Quick start
 
-1. **Credentials** — Set Taiga username and password in MCP config (recommended), or paste a bearer token (see [Authentication](#authentication)).
-2. **Image** — From the repo root: `npm run docker:build`
-3. **Cursor** — Add the MCP block below to **Settings → MCP** (or `~/.cursor/mcp.json`), restart Cursor.
-4. **Try** — In chat: *“Use `taiga_list_projects` and summarize my projects.”*
+Connect **Taiga → MCP server → Cursor** in four steps:
+
+1. **Taiga credentials** — Username/password or API token for your Taiga instance (see [Authentication](#authentication)).
+2. **Build the MCP server image** — `npm run docker:build` (packages this Taiga MCP server for Docker).
+3. **Register in Cursor** — Add the server under **Settings → MCP** (or `~/.cursor/mcp.json`), then restart Cursor.
+4. **Try in chat** — *“Use `taiga_list_projects` and summarize my Taiga projects.”*
+
+The MCP entry name (`taiga` below) is arbitrary; it is the label Cursor shows for this Taiga MCP server.
 
 ```json
 {
@@ -78,9 +89,11 @@ Set `TAIGA_MCP_LOG=info` (optional) to see friendly tool-call logs on **stderr**
 
 ## Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/)
-- Taiga reachable at `http://localhost:9000` (or change URLs below)
-- Taiga credentials with permission to create projects (or an existing project)
+You need a **running Taiga instance** and a way to run this **MCP server**:
+
+- **Taiga** — Self-hosted (e.g. `http://localhost:9000`) or Taiga Cloud; the MCP server only talks to Taiga’s API
+- **Taiga account** — Credentials with access to the projects you want the agent to manage
+- **[Docker](https://docs.docker.com/get-docker/)** — Recommended for Cursor (or Node 22 for [local dev](#local-development))
 
 ## Setup
 
@@ -134,7 +147,7 @@ The image uses prebuilt `node_modules` and `dist` from the host — no install s
 
 ### Configure Cursor MCP
 
-Add the [Quick start](#quick-start) JSON to Cursor. After saving, restart Cursor. If the server fails, check **Output → MCP**.
+Register this **Taiga MCP server** in Cursor using the [Quick start](#quick-start) JSON. Cursor will spawn `taiga-mcp:local` and list its Taiga tools in the agent. After saving, restart Cursor. If the server fails, check **Output → MCP**.
 
 ---
 
@@ -633,12 +646,16 @@ CI runs `npm test` on push and pull request (Node 22).
 
 ## Architecture
 
+This repo implements the **Taiga MCP server** (`taiga-mcp`). It does not run Taiga; it proxies MCP tool calls to your existing Taiga API.
+
 ```text
-Cursor IDE  --stdio-->  docker run -i taiga-mcp  --HTTP-->  Taiga :9000 (host)
-                              |
-                         MCP SDK + Zod
-                              |
-                         taiga-client (axios)
+Cursor (MCP client)
+    |  stdio — MCP tools e.g. taiga_get_story
+    v
+Taiga MCP server (this repo — Docker image taiga-mcp:local)
+    |  HTTPS — Taiga REST API /api/v1
+    v
+Taiga (your instance — stories, tasks, issues, Kanban, …)
 ```
 
 ```text
