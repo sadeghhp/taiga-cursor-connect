@@ -1,6 +1,14 @@
 import pc from "picocolors";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { basename } from "node:path";
+import {
+  formatEnabledTiersLabel,
+  getToolTier,
+  isToolTierEnabled,
+  parseEnabledTiers,
+  resetEnabledTiersCache,
+  type ToolTier
+} from "./tool-tiers.js";
 
 export type LogLevel = "off" | "info" | "debug";
 
@@ -175,12 +183,21 @@ export function logReady(opts: {
   version: string;
   apiHost: string;
   toolCount: number;
+  enabledTiers?: string;
 }): void {
   if (!levelAtLeast("info")) return;
   const level = getLogLevel();
+  const tiers =
+    opts.enabledTiers != null && opts.enabledTiers !== ""
+      ? ` · tiers=${pc.yellow(opts.enabledTiers)}`
+      : "";
   write(
-    `${pc.green("✓")} ready ${pc.dim(`v${opts.version}`)} · ${pc.cyan(sanitizeApiHost(opts.apiHost))} · ${opts.toolCount} tools · log=${pc.yellow(level)}`
+    `${pc.green("✓")} ready ${pc.dim(`v${opts.version}`)} · ${pc.cyan(sanitizeApiHost(opts.apiHost))} · ${opts.toolCount} tools${tiers} · log=${pc.yellow(level)}`
   );
+}
+
+function logTierWarning(message: string): void {
+  sink(`${PREFIX} ${pc.yellow("!")} ${pc.yellow(message)}`);
 }
 
 export function logToolStart(name: string, args: unknown): void {
@@ -266,17 +283,69 @@ function toolHasInputSchema(rest: unknown[]): boolean {
 }
 
 let registeredToolCount = 0;
+let enabledToolTiers: Set<ToolTier> = new Set(["core"]);
 
 /** Number of tools registered after installToolLogging (for startup banner). */
 export function getRegisteredToolCount(): number {
   return registeredToolCount;
 }
 
+/** Enabled tiers for the current MCP process. */
+export function getActiveToolTiers(): Set<ToolTier> {
+  return enabledToolTiers;
+}
+
+/** Label for startup logs, e.g. `core` or `core,extended`. */
+export function getActiveToolTiersLabel(): string {
+  return formatEnabledTiersLabel(enabledToolTiers);
+}
+
+function applyToolTierEnv(): void {
+  resetEnabledTiersCache();
+  const { enabled, requested, unknownTokens } = parseEnabledTiers(
+    process.env.TAIGA_MCP_TOOL_TIERS
+  );
+  enabledToolTiers = enabled;
+
+  const requestedLabel = formatEnabledTiersLabel(requested);
+  const enabledLabel = formatEnabledTiersLabel(enabled);
+  if (requestedLabel !== enabledLabel) {
+    logTierWarning(
+      `TAIGA_MCP_TOOL_TIERS=${requestedLabel} includes lower tiers → effective ${enabledLabel}`
+    );
+  }
+
+  const strict =
+    process.env.TAIGA_MCP_TOOL_TIERS_STRICT?.trim().toLowerCase() === "1" ||
+    process.env.TAIGA_MCP_TOOL_TIERS_STRICT?.trim().toLowerCase() === "true";
+
+  for (const token of unknownTokens) {
+    const msg = `Unknown TAIGA_MCP_TOOL_TIERS value: ${token}`;
+    if (strict) {
+      logConfigError(msg);
+      process.exit(1);
+    }
+    logTierWarning(msg);
+  }
+}
+
 /** Wrap server.tool so every handler emits stderr logs without touching each tool. */
 export function installToolLogging(server: McpServer): void {
+  registeredToolCount = 0;
+  applyToolTierEnv();
+
   const register = server.tool.bind(server);
 
   server.tool = ((name: string, ...rest: unknown[]) => {
+    if (name.startsWith("taiga_") && getToolTier(name) == null) {
+      logConfigError(`Tool ${name} is missing from TOOL_TIER in tool-tiers.ts`);
+      process.exit(1);
+    }
+
+    if (!isToolTierEnabled(name, enabledToolTiers)) {
+      return;
+    }
+
     registeredToolCount += 1;
     const callback = rest[rest.length - 1] as (...args: unknown[]) => Promise<unknown>;
     const hasSchema = toolHasInputSchema(rest);

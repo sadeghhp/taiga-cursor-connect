@@ -12,5 +12,6 @@ services:
       TAIGA_TOKEN: ${TAIGA_TOKEN:-}
       TAIGA_REFRESH_TOKEN: ${TAIGA_REFRESH_TOKEN:-}
       # TAIGA_MCP_LOG: info
+      TAIGA_MCP_TOOL_TIERS: ${TAIGA_MCP_TOOL_TIERS:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"

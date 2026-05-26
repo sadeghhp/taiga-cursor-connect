@@ -3,6 +3,7 @@ import { afterEach, describe, it } from "node:test";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
+  getActiveToolTiersLabel,
   getLogLevel,
   getRegisteredToolCount,
   installToolLogging,
@@ -13,6 +14,7 @@ import {
   setLogSink,
   summarizeToolArgs
 } from "./mcp-log.js";
+import { resetEnabledTiersCache } from "./tool-tiers.js";
 import { PACKAGE_VERSION } from "./version.js";
 
 type RegisteredTools = Record<
@@ -26,7 +28,10 @@ describe("mcp-log", () => {
   afterEach(() => {
     setLogSink(null);
     delete process.env.TAIGA_MCP_LOG;
+    delete process.env.TAIGA_MCP_TOOL_TIERS;
+    delete process.env.TAIGA_MCP_TOOL_TIERS_STRICT;
     delete process.env.NO_COLOR;
+    resetEnabledTiersCache();
     lines.length = 0;
   });
 
@@ -158,18 +163,20 @@ describe("mcp-log", () => {
       assert.match(lines[0], /✗ taiga_get_story/);
     });
 
-    it("logReady includes version and tool count", () => {
+    it("logReady includes version, tool count, and tiers", () => {
       process.env.TAIGA_MCP_LOG = "info";
       captureLogs();
       logReady({
         version: PACKAGE_VERSION,
         apiHost: "http://localhost:9000/api/v1",
-        toolCount: 90
+        toolCount: 38,
+        enabledTiers: "core"
       });
       assert.equal(lines.length, 1);
       assert.match(lines[0], /ready/);
       assert.match(lines[0], new RegExp(`v${PACKAGE_VERSION.replace(/\./g, "\\.")}`));
-      assert.match(lines[0], /90 tools/);
+      assert.match(lines[0], /38 tools/);
+      assert.match(lines[0], /tiers=core/);
     });
 
     it("omits ANSI codes when NO_COLOR is set", () => {
@@ -239,6 +246,69 @@ describe("mcp-log", () => {
       await tools.test_fail.handler({}, {});
 
       assert.match(lines[1], /✗ test_fail/);
+    });
+
+    it("skips taiga tools outside enabled tiers", () => {
+      process.env.TAIGA_MCP_TOOL_TIERS = "core";
+      const server = new McpServer({ name: "test", version: "0" });
+      installToolLogging(server);
+
+      server.tool("taiga_list_projects", {}, async () => ({
+        content: [{ type: "text" as const, text: "ok" }]
+      }));
+      server.tool("taiga_delete_story", {}, async () => ({
+        content: [{ type: "text" as const, text: "ok" }]
+      }));
+
+      assert.equal(getRegisteredToolCount(), 1);
+      assert.equal(getActiveToolTiersLabel(), "core");
+
+      const tools = (server as unknown as { _registeredTools: RegisteredTools })
+        ._registeredTools;
+      assert.ok(tools.taiga_list_projects);
+      assert.equal(tools.taiga_delete_story, undefined);
+    });
+
+    it("registers all tiers when TAIGA_MCP_TOOL_TIERS=all", () => {
+      process.env.TAIGA_MCP_TOOL_TIERS = "all";
+      const server = new McpServer({ name: "test", version: "0" });
+      installToolLogging(server);
+
+      server.tool("taiga_list_projects", {}, async () => ({
+        content: [{ type: "text" as const, text: "ok" }]
+      }));
+      server.tool("taiga_delete_story", {}, async () => ({
+        content: [{ type: "text" as const, text: "ok" }]
+      }));
+
+      assert.equal(getRegisteredToolCount(), 2);
+    });
+
+    it("registers core+extended when only extended is requested", () => {
+      process.env.TAIGA_MCP_TOOL_TIERS = "extended";
+      const server = new McpServer({ name: "test", version: "0" });
+      installToolLogging(server);
+
+      server.tool("taiga_list_projects", {}, async () => ({
+        content: [{ type: "text" as const, text: "ok" }]
+      }));
+      server.tool("taiga_delete_story", {}, async () => ({
+        content: [{ type: "text" as const, text: "ok" }]
+      }));
+      server.tool("taiga_bulk_sync_tasks_csv", { projectSlug: z.string() }, async () => ({
+        content: [{ type: "text" as const, text: "ok" }]
+      }));
+
+      assert.equal(getRegisteredToolCount(), 2);
+      assert.equal(getActiveToolTiersLabel(), "core,extended");
+    });
+
+    it("warns when tier expansion changes effective set", () => {
+      process.env.TAIGA_MCP_TOOL_TIERS = "extended";
+      captureLogs();
+      const server = new McpServer({ name: "test", version: "0" });
+      installToolLogging(server);
+      assert.match(lines[0] ?? "", /effective core,extended/);
     });
   });
 });

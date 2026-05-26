@@ -1,6 +1,8 @@
 # MCP tool catalog (v0.7.0)
 
-90 tools registered in [`src/server.ts`](../src/server.ts). See [README](../README.md) for parameters and examples.
+**90 tools** — see **[MCP_TOOLS.md](../MCP_TOOLS.md)** for the full alphabetical table with a brief description of each tool.
+
+Tools are registered in [`src/server.ts`](../src/server.ts). Parameters and example prompts are in the [main README](../README.md).
 
 ## Project lifecycle
 

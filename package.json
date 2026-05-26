@@ -11,7 +11,8 @@
     "dev": "tsx scripts/dev.mjs",
     "test": "npm run build && tsx --test src/**/*.test.ts",
     "test:watch": "tsx --test --watch 'src/**/*.test.ts'",
-    "smoke": "tsx scripts/smoke-mcp-tools.ts"
+    "smoke": "tsx scripts/smoke-mcp-tools.ts",
+    "docs:mcp-tools": "npm run build && node scripts/update-mcp-tools-md.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

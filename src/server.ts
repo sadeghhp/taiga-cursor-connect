@@ -6,6 +6,7 @@ import { formatTaigaError } from "./errors.js";
 import { ensureAuthReady, getAuthMode, getLoggedInUsername } from "./http/auth.js";
 import { getApiBaseUrl } from "./http/client.js";
 import {
+  getActiveToolTiersLabel,
   getRegisteredToolCount,
   installToolLogging,
   logAuthReady,
@@ -2163,7 +2164,8 @@ try {
   logReady({
     version: PACKAGE_VERSION,
     apiHost: getApiBaseUrl(),
-    toolCount: getRegisteredToolCount()
+    toolCount: getRegisteredToolCount(),
+    enabledTiers: getActiveToolTiersLabel()
   });
 } catch (err) {
   logConfigError(formatTaigaError(err));

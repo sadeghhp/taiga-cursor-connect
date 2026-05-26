@@ -9,7 +9,7 @@
 | **Protocol** | [Model Context Protocol](https://modelcontextprotocol.io) (stdio) |
 | **Runtime** | Node 22 (Docker image or local `tsx`) |
 | **Taiga** | Self-hosted or cloud; default `http://localhost:9000` |
-| **Version** | 0.7.0 — **90 tools** |
+| **Version** | 0.7.0 — **90 tools** (default **38** via `core` tier) |
 
 ## Why use this
 
@@ -18,6 +18,7 @@
 - **Safe writes** — Optimistic concurrency on PATCH with automatic retry on version conflicts; HTTP 429 backoff.
 - **Auto-auth** — Log in with username/password or legacy tokens; access tokens refresh on 401 without manual copy-paste.
 - **Plan-driven bulk import** — `taiga_bulk_sync_tasks_csv` syncs a CSV plan into stories/tasks with idempotency and `dryRun`.
+- **Tool tiers** — Expose `core` (38 tools) by default, or enable `extended` / `advanced` via `TAIGA_MCP_TOOL_TIERS` in MCP config.
 
 ## Quick start
 
@@ -58,6 +59,7 @@ Set `TAIGA_MCP_LOG=info` (optional) to see friendly tool-call logs on **stderr**
   - [Authentication](#authentication)
   - [Build the Docker image](#build-the-docker-image)
   - [Configure Cursor MCP](#configure-cursor-mcp)
+- [Tool tiers](#tool-tiers)
 - [Example prompts](#example-prompts)
 - [MCP tools reference](#mcp-tools-reference)
 - [Identifiers and conventions](#identifiers-and-conventions)
@@ -136,6 +138,147 @@ Add the [Quick start](#quick-start) JSON to Cursor. After saving, restart Cursor
 
 ---
 
+## Tool tiers
+
+Taiga Cursor Connect registers **90 MCP tools**. To keep the agent focused, those tools are split into three **tiers** (`core`, `extended`, `advanced`). You choose which tiers to load in Cursor; tools from disabled tiers are not offered to the model at all.
+
+### Why tiers exist
+
+- **Smaller tool list** — The model picks tools more reliably when it sees dozens of names instead of ninety.
+- **Safer defaults** — Destructive operations (hard delete, webhooks) live in **advanced**, which is off unless you opt in.
+- **Flexible setups** — Use **core** for daily work, add **extended** when bootstrapping projects or running bulk CSV sync, enable **advanced** only when you need deletes or integrations.
+
+Tiers are **not** a Taiga permission system. They only control what the MCP server exposes to Cursor. Your Taiga user still needs API rights for whatever you call.
+
+### How tiers work
+
+1. On startup, the server reads **`TAIGA_MCP_TOOL_TIERS`** from the environment.
+2. Each tool is assigned to exactly one tier (see [MCP_TOOLS.md](MCP_TOOLS.md)).
+3. Tools in enabled tiers are registered with MCP; the rest are skipped.
+4. The list does **not** change until you restart the MCP process.
+
+**Cumulative tiers:** higher tiers automatically include lower ones.
+
+| You set | What loads | Tool count |
+|---------|------------|------------|
+| *(nothing)* / `default` / `core` | **core** only | 38 |
+| `extended` | **core** + **extended** | 77 |
+| `advanced` | **core** + **extended** + **advanced** | 90 |
+| `all` or `full` | Same as **advanced** | 90 |
+
+You can still list tiers explicitly (e.g. `core,extended`); behavior is the same as `extended` alone.
+
+### The three tiers
+
+#### `core` (38 tools) — default
+
+Everyday backlog work: discover projects, list and read stories/tasks/issues/epics, search, create and update work items, comment, link stories to epics, Kanban board read/move/reorder, and basic metadata (statuses, members, points, issue types, tags).
+
+Typical tools: `taiga_list_projects`, `taiga_get_story`, `taiga_update_task`, `taiga_comment_on_story`, `taiga_search`, `taiga_move_story_on_kanban`.
+
+Omitted unless you enable a higher tier: project creation, bulk CSV, archives, swimlane admin, wiki, attachments, hard deletes, webhooks.
+
+#### `extended` (39 additional tools → 77 total)
+
+Project and board administration without permanent delete: create/update/duplicate projects, milestones, member invites, activity histories, stats, archives, `taiga_bulk_sync_tasks_csv`, backlog/sprint ordering, Kanban column and swimlane CRUD, custom attributes, wiki pages, and file uploads.
+
+Typical tools: `taiga_create_project`, `taiga_bulk_sync_tasks_csv`, `taiga_archive_story`, `taiga_upload_attachment`, `taiga_create_wiki_page`.
+
+Requires **core** (included automatically when you set `extended`).
+
+#### `advanced` (13 additional tools → 90 total)
+
+High-impact operations: hard delete for projects, stories, tasks, epics, issues, tags, wiki pages, and attachments; full webhook CRUD and test.
+
+Typical tools: `taiga_delete_story`, `taiga_delete_project`, `taiga_create_webhook`, `taiga_test_webhook`.
+
+Requires **core** and **extended** (included automatically when you set `advanced`).
+
+### Configure tiers in Cursor
+
+Cursor does not provide a separate “tool tier” picker. Set the environment variable **`TAIGA_MCP_TOOL_TIERS`** on your MCP server in **Settings → MCP** or `~/.cursor/mcp.json`.
+
+| Your goal | Value |
+|-----------|--------|
+| Default — daily Taiga work in chat | *(omit variable)* |
+| Same as default | `default` or `core` |
+| Projects, bulk import, wiki, attachments | `extended` |
+| Everything including delete & webhooks | `advanced`, `all`, or `full` |
+
+**Docker** — add a line to `args`:
+
+```json
+"-e", "TAIGA_MCP_TOOL_TIERS=extended"
+```
+
+**Full Docker example:**
+
+```json
+{
+  "mcpServers": {
+    "taiga": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "--add-host=host.docker.internal:host-gateway",
+        "-e", "TAIGA_API_URL=http://host.docker.internal:9000/api/v1",
+        "-e", "TAIGA_USERNAME=YOUR_USERNAME",
+        "-e", "TAIGA_PASSWORD=YOUR_PASSWORD",
+        "-e", "TAIGA_MCP_TOOL_TIERS=extended",
+        "taiga-mcp:local"
+      ]
+    }
+  }
+}
+```
+
+**Local dev** (`npx tsx`) — use `env`:
+
+```json
+"env": {
+  "TAIGA_API_URL": "http://localhost:9000/api/v1",
+  "TAIGA_USERNAME": "YOUR_USERNAME",
+  "TAIGA_PASSWORD": "YOUR_PASSWORD",
+  "TAIGA_MCP_TOOL_TIERS": "extended"
+}
+```
+
+Optional: set `TAIGA_MCP_TOOL_TIERS_STRICT=true` to exit on typos in tier names instead of logging a warning.
+
+### After changing tiers
+
+1. Save MCP settings.
+2. **Restart** the MCP server (toggle off/on in Cursor, or restart the IDE).
+
+Verify with `TAIGA_MCP_LOG=info` — stderr shows something like:
+
+```text
+[taiga-mcp] ✓ ready v0.7.0 · http://host.docker.internal:9000/api/v1 · 77 tools · tiers=core,extended · log=info
+```
+
+### Upgrading from builds without tiers
+
+Older images registered **all 90 tools** with no configuration. To restore that:
+
+```json
+"-e", "TAIGA_MCP_TOOL_TIERS=all"
+```
+
+Restart Cursor after changing MCP config. Details: [CHANGELOG.md](CHANGELOG.md).
+
+### Two MCP servers (optional)
+
+Run two entries against the same Docker image and enable the one you need:
+
+| MCP name | `TAIGA_MCP_TOOL_TIERS` | When to use |
+|----------|-------------------------|-------------|
+| `taiga` | *(omit)* or `core` | Normal development |
+| `taiga-full` | `all` | Deletes, webhooks, or full tool catalog |
+
+Further reference: [MCP_TOOLS.md](MCP_TOOLS.md) (every tool + tier), [docs/tool-tier-configuration.md](docs/tool-tier-configuration.md) (design and edge cases).
+
+---
+
 ## Example prompts
 
 **Bootstrap a new project**
@@ -193,6 +336,8 @@ See [docs/bulk-sync-example.md](docs/bulk-sync-example.md) for CSV shape and ide
 ---
 
 ## MCP tools reference
+
+The tables below describe all **90** tools. Which ones Cursor can call depends on [tool tiers](#tool-tiers) and `TAIGA_MCP_TOOL_TIERS`. By default only **core** (38 tools) is registered.
 
 ### Discovery (18)
 
@@ -427,6 +572,8 @@ The process waits on stdio (normal for MCP). Prefer the [Cursor docker `run` con
 | `TAIGA_TOKEN` | Yes* | Bearer `auth_token` (token mode) |
 | `TAIGA_REFRESH_TOKEN` | No | Refresh token for auto-renewal on 401 in token mode |
 | `TAIGA_MCP_LOG` | No | MCP stderr logging: `off` (default), `info` (tool calls), or `debug` (+ HTTP retries) |
+| `TAIGA_MCP_TOOL_TIERS` | No | Tiers: `core` (default), `extended`, `advanced`; aliases `default`, `all`, `full`. Higher tiers include lower. Comma-separated to combine explicitly. |
+| `TAIGA_MCP_TOOL_TIERS_STRICT` | No | If `true`/`1`, exit on unknown tier names in `TAIGA_MCP_TOOL_TIERS` |
 
 \* Provide **either** `TAIGA_USERNAME` + `TAIGA_PASSWORD` **or** `TAIGA_TOKEN`.
 
@@ -470,6 +617,8 @@ CI runs `npm test` on push and pull request (Node 22).
 | Cannot reach Taiga from container | Taiga on host port 9000; test: `docker run --rm --add-host=host.docker.internal:host-gateway curlimages/curl -s http://host.docker.internal:9000/api/v1/` |
 | No projects | Use `taiga_create_project` or create in Taiga UI |
 | Missing or stale tools | `npm run docker:build`, restart Cursor (reloads MCP tool list) |
+| Fewer tools than before (e.g. no delete/webhook) | Default is `core` only; set `TAIGA_MCP_TOOL_TIERS=all` for all 90 tools |
+| Agent cannot find a tool | Enable its tier (`extended` or `advanced`) or use `all`; restart MCP |
 
 ---
 
@@ -516,7 +665,10 @@ src/
 | Doc | Purpose |
 |-----|---------|
 | [docs/Taiga REST API.md](docs/Taiga%20REST%20API.md) | Taiga API notes used by this server |
-| [docs/mcp-tool-catalog.md](docs/mcp-tool-catalog.md) | Alphabetic index of all 79 MCP tools |
+| [MCP_TOOLS.md](MCP_TOOLS.md) | Alphabetic table of all 90 MCP tools with descriptions |
+| [docs/mcp-tool-catalog.md](docs/mcp-tool-catalog.md) | Category-grouped tool index (links to MCP_TOOLS.md) |
+| [docs/tool-tier-configuration.md](docs/tool-tier-configuration.md) | Tool tiers (`core` / `extended` / `advanced`) and Cursor config |
+| [CHANGELOG.md](CHANGELOG.md) | Release notes (tier default change in 0.7.0) |
 | [docs/exchange-r1-bootstrap.md](docs/exchange-r1-bootstrap.md) | Milestone/epic/CSV bootstrap sequence |
 | [docs/bulk-sync-example.md](docs/bulk-sync-example.md) | Bulk CSV sync prompts and output shape |
 
